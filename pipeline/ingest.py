@@ -5,6 +5,7 @@ Run: python -m pipeline.ingest
 from __future__ import annotations
 
 import os
+import re
 import sys
 import threading
 import time
@@ -12,8 +13,11 @@ from pathlib import Path
 
 import requests
 import yaml
+from lxml import etree
 
 CONFIG_PATH = Path(__file__).with_name("config.yaml")
+RAW_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "raw"
+ARCHIVES = "https://www.sec.gov/Archives/edgar/data"
 ADS_CIK = "0001837532"
 ADS_EXPECTED_NAME = "Apollo Debt Solutions BDC"
 
@@ -79,6 +83,61 @@ def recent_10q(submissions: dict, n: int = 10) -> list[dict]:
     ]
     rows.sort(key=lambda x: x["filing_date"], reverse=True)
     return rows[:n]
+
+
+def filing_folder_url(cik: str | int, accession: str) -> str:
+    return f"{ARCHIVES}/{int(cik)}/{accession.replace('-', '')}/"
+
+
+def find_primary_document(client: SecClient, cik: str | int, accession: str) -> tuple[str, str]:
+    """Return (filename, url) of the primary Inline XBRL document.
+
+    Uses the filing folder index.json for the file list and the submissions
+    feed's primaryDocument field to pick the main document (not an exhibit).
+    """
+    folder = filing_folder_url(cik, accession)
+    index = client.get_json(folder + "index.json")
+    files = {item["name"] for item in index["directory"]["item"]}
+    subs = client.get_json(f"https://data.sec.gov/submissions/CIK{int(cik):010d}.json")
+    r = subs["filings"]["recent"]
+    primary = None
+    for i, acc in enumerate(r["accessionNumber"]):
+        if acc == accession:
+            primary = r["primaryDocument"][i]
+            break
+    if not primary:
+        raise RuntimeError(f"{accession} not in recent filings for CIK {cik}")
+    if primary not in files:
+        raise RuntimeError(f"Primary document {primary} not listed in {folder}")
+    return primary, folder + primary
+
+
+def download_filing(client: SecClient, cik: str | int, accession: str, label: str,
+                    period_end: str, dest_dir: Path = RAW_DIR) -> tuple[Path, str]:
+    """Download the primary document to dest_dir/<label>_10q_<period_end>.htm."""
+    _, url = find_primary_document(client, cik, accession)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    path = dest_dir / f"{label}_10q_{period_end}.htm"
+    path.write_bytes(client.get(url, timeout=120).content)
+    return path, url
+
+
+def inspect_ixbrl(path: Path) -> dict:
+    """Count ix:nonFraction facts and distinct contexts; check for a Schedule of Investments."""
+    ix = "http://www.xbrl.org/2013/inlineXBRL"
+    xbrli = "http://www.xbrl.org/2003/instance"
+    tree = etree.parse(str(path), etree.XMLParser(huge_tree=True, recover=True))
+    facts = tree.findall(f".//{{{ix}}}nonFraction")
+    ctx_refs = {f.get("contextRef") for f in facts}
+    ctx_defs = tree.findall(f".//{{{xbrli}}}context")
+    text = " ".join(tree.getroot().itertext())
+    return {
+        "size_bytes": path.stat().st_size,
+        "nonfraction_facts": len(facts),
+        "distinct_contexts_used": len(ctx_refs),
+        "contexts_defined": len(ctx_defs),
+        "has_schedule_of_investments": bool(re.search(r"schedule of investments", text, re.I)),
+    }
 
 
 def main() -> int:
