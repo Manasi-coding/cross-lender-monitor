@@ -1,0 +1,4 @@
+# the measured quarter is not set here: MEASURED_PERIOD_END in .env (read by the pipeline and the API)
+sec:
+  max_requests_per_second: 5       # SEC allows 10, stay well under
+  backoff_seconds: [1, 2, 4, 8]    # user agent comes from env SEC_USER_AGENT
