@@ -155,10 +155,12 @@ CREATE TABLE raw_holdings (
   interest_rate_raw      TEXT,
   maturity_date_raw      TEXT,
   principal_raw          TEXT,
+  principal_unit_raw     TEXT,              -- the unit tag on the principal fact, as parsed (u_EUR, u_USD ...); added Day 2
   cost_raw               TEXT,
   fair_value_raw         TEXT,
   footnotes_raw          TEXT,
-  row_order              INT
+  row_order              INT,
+  source_url             TEXT NOT NULL      -- carried on every holding row, copied from raw_filings; added Day 2
 );
 
 -- STAGED LAYER

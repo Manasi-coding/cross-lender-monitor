@@ -1,0 +1,7 @@
+.env
+.git
+.venv
+**/node_modules
+**/dist
+fixtures/raw
+backups

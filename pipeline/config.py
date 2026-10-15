@@ -41,3 +41,14 @@ def measured_period_end(env_path: Path = ENV_PATH) -> date:
         return date.fromisoformat(raw.strip())
     except ValueError as e:
         raise RuntimeError(f"MEASURED_PERIOD_END must be an ISO date (YYYY-MM-DD), got {raw!r}") from e
+
+
+def load_env_file(env_path: Path = ENV_PATH) -> None:
+    """Load KEY=VALUE lines from .env into os.environ without overriding variables already set."""
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))

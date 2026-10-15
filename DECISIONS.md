@@ -23,7 +23,7 @@ Docs: `SPEC.md` (scope, schema, evaluation, tests), `CONTRACT.md` (API E1 to E12
 - The earlier literal 90% rule is superseded. `phase_wise.md` now uses a funded-row rule (95%).
 - HPS and ORCIC need HTML-assisted parsing: maturity is HTML-only for both, and HPS exposes instrument type only by lien class.
 - HTML-to-XBRL join: HPS 796 of 798 rows (99.7%), ORCIC 515 of 515 (100%).
-- Day 4 adapter work: join HTML to XBRL on (principal, cost, fair value) with thousands scale, a printed dash read as zero, and name to break ties; drop XBRL rows with no main-schedule row; parse ORCIC maturity as month and year, set to month end.
+- Day 4 adapter work: join HTML to XBRL on (principal, cost, fair value) with thousands scale and name to break ties; drop XBRL rows with no main-schedule row; parse ORCIC maturity as month and year, set to month end. In the HTML-to-XBRL join on principal and cost, a printed dash is read as zero. This does not apply to fair value: see section 4 (SK Neptune Husky).
 - ADS spot-checks against the filing (Corpuls, North American Rail, IQN Holding): checked, matches.
 
 ## 3. Currency rule
@@ -43,6 +43,10 @@ Docs: `SPEC.md` (scope, schema, evaluation, tests), `CONTRACT.md` (API E1 to E12
 - No ratio-based rule: a low ratio can't be told apart from a real markdown.
 - **Revolver and delayed-draw limitation (open, measured on Day 4):** HPS funded rows are typed by lien class only. Only one funded row exposes a signal in its name (CoreWeave Financing DDTL V). 461 funded HPS rows share a borrower with a revolver or delayed-draw commitment in the unfunded table, but that does not say which row is the revolver, so no row-level rule is invented. A keyword rule and measuring its effect are Day 4 work.
 - Navacord's sampled negative row is preferred stock or equity, outside the funded-debt universe.
+- **ADS fair value shown as a dash (SK Neptune Husky Group Sarl):** the ADS row for SK Neptune Husky Group Sarl has principal 9,588,000 and cost 9,396,000, a non-accrual footnote, and a dash for fair value in the filing HTML. The XBRL has no fair value fact for the row.
+- A dash cannot be told apart from "zero" or "not reported", and the fair value sum reconciles to the filing total either way.
+- **Decision:** do not read the dash as zero. The row is kept in `facility_comparisons` with `fair_value_pct_par` NULL and `excluded_reason = NULL_FAIR_VALUE`. No zero mark is manufactured. It is 1 of 637 ADS funded rows.
+- Same rule for all filers: a dash on fair value is NULL, never zero, unless the filing text says the fair value is zero.
 
 ## 5. Overlap gate
 

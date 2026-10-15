@@ -1,6 +1,7 @@
-"""SEC ingestion. Phase 0: rate-limited SEC client and submissions check.
+"""SEC ingestion: rate-limited SEC client (Phase 0) and the Day 2 load of the ADS filing.
 
 Run: python -m pipeline.ingest
+Loads one filing into raw_filings and its schedule rows into raw_holdings, one transaction.
 """
 from __future__ import annotations
 
@@ -9,6 +10,8 @@ import re
 import sys
 import threading
 import time
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
 
 import requests
@@ -140,7 +143,8 @@ def inspect_ixbrl(path: Path) -> dict:
     }
 
 
-def main() -> int:
+def phase0_check() -> int:
+    """Phase 0 check, kept for reference: confirm the CIK name and list recent 10-Q filings."""
     client = SecClient()
     url = f"https://data.sec.gov/submissions/CIK{ADS_CIK}.json"
     data = client.get_json(url)
@@ -155,6 +159,136 @@ def main() -> int:
     n403 = sum(1 for _, s in client.status_log if s == 403)
     print(f"\nRequests: {len(client.status_log)}, statuses: {[s for _, s in client.status_log]}, 403s: {n403}")
     return 0 if ok and n403 == 0 else 1
+
+
+# ---------------------------------------------------------------------------
+# Day 2 vertical slice: ADS filing into raw_filings and raw_holdings
+# ---------------------------------------------------------------------------
+ADS_FORM_TYPE = "10-Q"
+
+
+def plain(value: Decimal | None) -> str | None:
+    """Decimal as plain text (no exponent), as parsed. None stays None."""
+    return None if value is None else format(value, "f")
+
+
+def split_identifier_raw(ident: str) -> tuple[str, str | None, str | None, str | None]:
+    """Raw text pieces of the ADS investment identifier, unchanged:
+    '<industry> <company> Investment Type <type> Interest Rate <rate> Maturity Date <date>'.
+    The industry and company run together in the first piece, so industry_raw stays NULL."""
+    parts = re.split(r"\s+Investment Type\s+", ident, maxsplit=1)
+    name = parts[0].strip()
+    rest = parts[1] if len(parts) > 1 else None
+    inst = rate = maturity = None
+    if rest:
+        m = re.search(r"\s+Maturity Date\s+(.*)$", rest)
+        if m:
+            maturity = m.group(1).strip() or None
+            rest = rest[: m.start()]
+        m = re.search(r"\s+Interest Rate\s+(.*)$", rest)
+        if m:
+            rate = m.group(1).strip() or None
+            rest = rest[: m.start()]
+        inst = rest.strip() or None
+    return name.strip(), inst, rate, maturity
+
+
+def linked_footnotes(path: Path, contexts: dict, facts: list, period_end: str) -> dict[str, list[str]]:
+    """Footnote texts (ix:footnote linked by ix:relationship) of each investment identifier at period_end."""
+    from pipeline.ixbrl import IDENTIFIER_AXIS, NS_IX
+    root = etree.parse(str(path), etree.XMLParser(huge_tree=True, recover=True)).getroot()
+    notes = {el.get("id"): " ".join("".join(el.itertext()).split())
+             for el in root.iter(f"{{{NS_IX}}}footnote")}
+    fact_notes: dict[str, set[str]] = {}
+    for rel in root.iter(f"{{{NS_IX}}}relationship"):
+        for src in (rel.get("fromRefs") or "").split():
+            fact_notes.setdefault(src, set()).update((rel.get("toRefs") or "").split())
+    elements = list(root.iter(f"{{{NS_IX}}}nonFraction"))
+    if len(elements) != len(facts):
+        raise RuntimeError("nonFraction element count differs from parsed facts")
+    out: dict[str, set[str]] = {}
+    for el, fact in zip(elements, facts):
+        fid = el.get("id")
+        if not fid or fid not in fact_notes:
+            continue
+        c = contexts.get(fact.context_ref)
+        if c and c.instant == period_end and IDENTIFIER_AXIS in c.typed and len(c.dims) == 1:
+            out.setdefault(c.typed[IDENTIFIER_AXIS], set()).update(
+                notes[n] for n in fact_notes[fid] if n in notes)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def build_holding_rows(path: Path, period_end: str, source_url: str) -> list[tuple]:
+    """One tuple per schedule row (a row with a fair value or a cost), values as parsed."""
+    from pipeline.ixbrl import assemble_investments, parse_ixbrl
+    contexts, facts, text_facts = parse_ixbrl(path)
+    rows = assemble_investments(contexts, facts, text_facts, period_end)
+    schedule = [r for r in rows if r["fair_value"] is not None or r["cost"] is not None]
+    notes = linked_footnotes(path, contexts, facts, period_end)
+    out = []
+    for order, r in enumerate(schedule, start=1):
+        name, inst, rate, maturity = split_identifier_raw(r["identifier"])
+        out.append((
+            name, None, inst, rate, maturity,
+            plain(r["principal"]), r["principal_unit"], plain(r["cost"]), plain(r["fair_value"]),
+            " | ".join(notes.get(r["identifier"], [])) or None, order, source_url,
+        ))
+    return out
+
+
+def load_ads(conn, client: SecClient, period_end: date) -> tuple[int, int]:
+    """Look up the filing, read the saved document and insert one filing and its holdings
+    in one transaction. Returns (filing_id, holdings inserted)."""
+    subs = client.get_json(f"https://data.sec.gov/submissions/CIK{ADS_CIK}.json")
+    if subs.get("name", "").strip().lower() != ADS_EXPECTED_NAME.lower():
+        raise RuntimeError(f"CIK {ADS_CIK} name is {subs.get('name')!r}, expected {ADS_EXPECTED_NAME!r}")
+    match = [r for r in recent_10q(subs, n=50) if r["period_end"] == period_end.isoformat()]
+    if len(match) != 1:
+        raise RuntimeError(f"expected 1 {ADS_FORM_TYPE} for {period_end}, found {len(match)}")
+    filing = match[0]
+    _, source_url = find_primary_document(client, ADS_CIK, filing["accession"])
+    path = RAW_DIR / f"ads_10q_{period_end.isoformat()}.htm"
+    if not path.exists():
+        path, _ = download_filing(client, ADS_CIK, filing["accession"], "ads", period_end.isoformat())
+    holdings = build_holding_rows(path, period_end.isoformat(), source_url)
+    with conn.transaction():
+        row = conn.execute(
+            "INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, "
+            "accession_number, source_url) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING filing_id",
+            (ADS_CIK, ADS_EXPECTED_NAME, ADS_FORM_TYPE, period_end, filing["filing_date"],
+             filing["accession"], source_url),
+        ).fetchone()
+        filing_id = row[0]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO raw_holdings (filing_id, portfolio_company_raw, industry_raw, "
+                "instrument_type_raw, interest_rate_raw, maturity_date_raw, principal_raw, "
+                "principal_unit_raw, cost_raw, fair_value_raw, footnotes_raw, row_order, source_url) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                [(filing_id, *h) for h in holdings],
+            )
+    return filing_id, len(holdings)
+
+
+def main() -> int:
+    import psycopg
+    from pipeline.config import load_env_file, measured_period_end
+
+    load_env_file()
+    period_end = measured_period_end()
+    url = os.environ.get("DATABASE_URL", "").strip()
+    if not url:
+        raise RuntimeError("DATABASE_URL is not set.")
+    client = SecClient()
+    with psycopg.connect(url) as conn:
+        try:
+            filing_id, n = load_ads(conn, client, period_end)
+        except psycopg.errors.UniqueViolation:
+            print("This filing is already loaded (accession_number is unique). Nothing was changed.")
+            return 1
+    print(f"Loaded filing_id {filing_id} with {n} holdings for {period_end}.")
+    print(f"SEC requests: {len(client.status_log)}, 403s: {sum(1 for _, s in client.status_log if s == 403)}")
+    return 0
 
 
 if __name__ == "__main__":

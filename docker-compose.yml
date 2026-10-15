@@ -1,0 +1,78 @@
+# Day 2 vertical slice. Compose v2 schema (no version key).
+# Secrets and the measured quarter come from .env through env_file. .env is never copied into an image.
+services:
+  db:
+    image: postgres:16.15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cross_lender
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cross_lender"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # One-shot: applies db/migrations before the api starts, so a clean `docker compose up` works.
+  migrate:
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile
+    command: ["python", "-m", "pipeline.migrate"]
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
+      NODE_ENV: development
+      ENABLE_LABELING: ${ENABLE_LABELING:-false}
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/filings').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Not a long-running service. Run jobs with:
+  #   docker compose run --rm pipeline python -m pipeline.migrate
+  #   docker compose run --rm pipeline python -m pipeline.ingest
+  pipeline:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: pipeline/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
+    volumes:
+      - ./fixtures:/app/fixtures
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
