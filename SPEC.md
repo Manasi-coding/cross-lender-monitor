@@ -17,7 +17,7 @@ Analyst (end user): searches borrowers, views facility-level cross-lender compar
 System: batch pipeline — ingest → normalize → block → score → classify → persist. No human in the automated path; humans only touch the review queue.
 3.2 What the User Sees — screen-by-screen
 Borrower Search — search box; result rows show canonical borrower name, period label, # lenders, # facilities.
-Facility Comparison (core screen) — header (borrower, period end, instrument type, reference rate, maturity bucket); table of one row per contributing BDC (name, total spread bps, fair value % of par, principal, source filing URL); divergence banner (AGREEMENT/MILD/FLAGGED) with the actual point spread shown. There is no period selector: a facility belongs to one period. Every facility has at least 2 lenders with a usable mark; holdings excluded for missing, zero or non-USD principal appear only as a count in a note.
+Facility Comparison (core screen) — header (borrower, period end, instrument type, reference rate, maturity bucket); table of one row per contributing BDC (name, total spread bps, fair value % of par, principal, source filing URL); divergence banner (AGREEMENT/MILD/FLAGGED) with the actual point spread shown. There is no period selector: a facility belongs to one period. Every facility has at least 2 lenders with a usable mark; holdings excluded for missing, zero or non-USD principal, or an unfunded commitment, appear only as a count in a note.
 Review Queue — one row per candidate pair awaiting a decision (see §6 candidate_pairs): raw names side by side, score, instrument type, maturity, spread. Actions: Confirm Match / Reject / Skip. Review clusters (two holdings from one BDC landing in the same cluster) get their own card listing the holdings and the AUTO or CONFIRMED pairs that formed it, each with a Reject action; resolving a cluster means rejecting a pair and re-running compare.py. Decisions apply only after the next compare.py run.
 Metrics / Evaluation — AUTO-only precision (headline) and REVIEW band precision, each with a Wilson interval and an UNSURE range (UNSURE as NO_MATCH and as MATCH); optional precision if REVIEW pairs were auto-accepted, labeled exactly that; recall given blocking with a bootstrap interval; blocking recall from the independent 30-holding check (§12.5); raw UNSURE count; divergence sensitivity table (1/2/5pt); coverage counts. Anything not yet computed reads "Not yet measured".
 3.3 What Is Deliberately Out of Scope
@@ -237,7 +237,7 @@ CREATE TABLE facility_comparisons (
   spread_bps_total    NUMERIC,                -- spread_bps + pik_bps
   principal           NUMERIC,
   fair_value_pct_par  NUMERIC,                -- NULL when excluded
-  excluded_reason     TEXT,                   -- NULL | ZERO_OR_NULL_PRINCIPAL | NULL_FAIR_VALUE | NON_USD_PRINCIPAL
+  excluded_reason     TEXT,                   -- NULL | ZERO_OR_NULL_PRINCIPAL | NULL_FAIR_VALUE | NON_USD_PRINCIPAL | UNFUNDED_COMMITMENT
   source_url          TEXT NOT NULL,
   PRIMARY KEY (facility_id, holding_id)
 );
@@ -325,7 +325,7 @@ CREATE TABLE metric_results (
   payload              JSONB NOT NULL         -- every label-derived E9 field; sensitivityTable and coverage are computed live by the API
 );
 
-Guard, mandatory: fair_value_pct_par computation must check principal IS NOT NULL AND principal != 0 AND principal_currency = 'USD' before dividing; otherwise store NULL and exclude the row from comparisons (never silently produce Infinity/error).
+Guard, mandatory: fair_value_pct_par computation must check principal IS NOT NULL AND principal != 0 AND principal_currency = 'USD' and the row is not flagged by the filer's unfunded-commitment footnote pattern (configured per filer) before dividing; otherwise store NULL and exclude the row from comparisons (never silently produce Infinity/error).
 
 7. API Contract
 The API contract (E1 to E12, response shapes, error format, null rule, write rules) lives in CONTRACT.md and nowhere else. Do not copy shapes into this file. Test 12 and the shape tests in §13 check against CONTRACT.md.
@@ -383,6 +383,12 @@ fair_value_pct_par = NULL, row excluded from comparisons, never divide by zero
 Non-USD principal
 Corpuls, principal in EUR, fair value in USD
 fair_value_pct_par = NULL, row kept with excluded_reason NON_USD_PRINCIPAL, never converted
+Unfunded loan commitment
+HPS row whose footnote says the position or portion is an unfunded loan commitment, with negative or partial cost and fair value
+fair_value_pct_par = NULL, row kept with excluded_reason UNFUNDED_COMMITMENT, detected by footnote text
+Partly unfunded footnote, normal ratio
+ORCIC row, footnote 'partially unfunded debt or equity commitment', fair value about 0.986 of principal
+Not excluded: the filer's pattern does not match; fair_value_pct_par is computed
 Filer-specific XBRL tags
 Non-standard tag names
 One schema-drift fixture per filer
@@ -505,7 +511,7 @@ Pair excluded pre-matching
 11
 Null/zero principal guard
 principal = 0
-fair_value_pct_par = NULL; row kept in facility_comparisons with excluded_reason, not used in divergence or lender_count; principal in EUR with fair value in USD gives NULL with excluded_reason NON_USD_PRINCIPAL
+fair_value_pct_par = NULL; row kept in facility_comparisons with excluded_reason, not used in divergence or lender_count; principal in EUR with fair value in USD gives NULL with excluded_reason NON_USD_PRINCIPAL; a row whose footnote marks an unfunded loan commitment gives NULL with excluded_reason UNFUNDED_COMMITMENT; an ORCIC row with a 'partially unfunded' footnote and a normal ratio keeps its computed value
 12
 API — endpoint shape
 GET /api/facilities/:id/comparison
