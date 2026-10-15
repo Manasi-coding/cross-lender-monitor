@@ -86,7 +86,7 @@ E5 GET /api/facilities/:id/comparison
   excludedCount, divergencePts, divergenceFlag }
 
 No query parameters. A facility belongs to one period, so periodEnd is fixed in the body. There is no availablePeriods.
-rows holds included holdings only, sorted by bdcName. excludedCount counts holdings in this facility with no usable mark (null or zero principal, or null fair value).
+rows holds included holdings only, sorted by bdcName. excludedCount counts holdings in this facility with no usable mark (null, zero or non-USD principal, or null fair value).
 Every facility has at least 2 rows. compare.py only materializes a cluster as a facility when at least 2 of its holdings have a non-null fair_value_pct_par, and facility_summary.lender_count has a CHECK (lender_count >= 2). If the API ever finds fewer than 2 rows it returns 500 DATA_INTEGRITY, and the UI shows the generic error state. There is no "not enough lenders" screen.
 divergencePts is max minus min fairValuePctPar over rows. divergenceFlag is AGREEMENT, MILD or FLAGGED (SPEC section 12.8). Both are always non-null.
 E6 GET /api/review-queue

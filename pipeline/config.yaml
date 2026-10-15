@@ -2,3 +2,42 @@
 sec:
   max_requests_per_second: 5       # SEC allows 10, stay well under
   backoff_seconds: [1, 2, 4, 8]    # user agent comes from env SEC_USER_AGENT
+currency:
+  principal_currency_required: USD   # fair_value_pct_par is NULL unless the principal unit is this
+normalization:
+  legal_form_tokens: [llc, inc, corp, corporation, co, company, lp, llp, ltd, limited, plc]
+  structural_tokens: [holdings, holding, holdco, topco, parent, intermediate]
+  instrument_keywords:             # checked in this order, first hit wins
+    revolver: [revolv]
+    delayed_draw: [delayed, ddtl]
+    second_lien: [second lien, 2nd lien]
+    first_lien: [first lien, 1st lien, senior secured, unitranche]
+    unsecured: [unsecured, subordinated, mezzanine]
+  equity_keywords: [common stock, preferred, warrant, units, membership interest, partnership interest, equity]
+blocking:
+  maturity_window_months: 3
+  spread_window_bps: 50
+  name_prefix_chars: 4
+  max_block_size_warn: 200
+scoring:
+  scorer: token_sort_ratio         # name only, attributes gate candidacy in blocking
+bands:
+  auto_min: 0.92
+  review_min: 0.80                 # inclusive, same number as the fuzzy floor
+  just_below_min: 0.65
+divergence:
+  mild_pts: 1.0
+  flagged_pts: 2.0
+sampling:
+  tuning_size: 100
+  heldout_per_band: 25
+  seed: 1                          # fixed so draws are reproducible
+evaluation:
+  bootstrap_resamples: 1000
+  bootstrap_seed: 1
+  ci_level: 0.95
+blocking_recall:
+  sample_size: 30
+  seed: 1
+freeze:
+  hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py]   # add any helper module they import

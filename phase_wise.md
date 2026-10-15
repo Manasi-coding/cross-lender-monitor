@@ -264,7 +264,7 @@ Instrument type enum: FIRST_LIEN, SECOND_LIEN, REVOLVER, DELAYED_DRAW, UNSECURED
 Exclusions: equity rows and unfunded commitments are not written to normalized_holdings (they stay in raw_holdings). Log counts by reason in the data report.
 Rate parsing into (reference_rate, spread_bps, floor_bps, pik_bps): handle forms like SOFR + 5.25%, S+525, a floor in parentheses, SONIA, Fixed 11.0%, and Cash 8.5% + PIK 2.5%. A percent value becomes basis points (x100), a bare number after S+ is already basis points. Fixed rate rows get reference_rate = FIXED and NULL spread. Unparseable rows get NULLs and are counted in the data report.
 Maturity: parse MM/DD/YYYY, ISO and month-year (month-year becomes month end).
-Money: strip $ and commas, parentheses mean negative, apply the filer's scale. fair_value_pct_par = 100 * fair_value / principal only when principal is non-null and non-zero, else NULL. Log values outside 0 to 150.
+Money: strip $ and commas, parentheses mean negative, apply the filer's scale. fair_value_pct_par = 100 * fair_value / principal only when principal is non-null and non-zero, else NULL. Log values outside 0 to 150. Keep the principal currency from the unit. fair_value_pct_par is NULL unless it is USD.
 Idempotent: upsert by holding_id. Never truncate (labels and candidate pairs reference these rows).
 6.2 Blocking (block.py)
 Block keys per holding, written to blocking_keys: (period, instrument_type_norm, first name_prefix_chars of the normalized name) and (period, instrument_type_norm, first token of the normalized name).

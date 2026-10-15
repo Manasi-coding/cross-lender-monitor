@@ -165,8 +165,8 @@ Search calls E4 with search (matches the borrower name). The spread shows as a m
 │ │ BDC name | Spread bps | FV % of par | Principal | Source│ │
 │ │ BDC name | Spread bps | FV % of par | Principal | Source│ │
 │ └─────────────────────────────────────────────────────────┘ │
-│ Note: N holdings excluded because principal was zero or     │
-│ missing.   (only when excludedCount is above 0)             │
+│ Note: N holdings excluded because principal was zero,       │
+│ missing or not in USD. (only when excludedCount is above 0) │
 │                                                             │
 │ ┌──────────────────────────┐ ┌─────────────────────────┐    │
 │ │ Fair Value / Par         │ │ Facility Details        │    │
