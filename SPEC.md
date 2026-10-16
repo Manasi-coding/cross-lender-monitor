@@ -143,6 +143,7 @@ CREATE TABLE raw_filings (
   filing_date       DATE NOT NULL,
   accession_number  TEXT NOT NULL UNIQUE,
   source_url        TEXT NOT NULL,
+  source_sha256     TEXT,             -- sha256 of the loaded document; a rerun with a changed file is refused; added Day 3
   ingested_at       TIMESTAMPTZ DEFAULT now()
 );
 

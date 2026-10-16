@@ -5,6 +5,7 @@ Loads one filing into raw_filings and its schedule rows into raw_holdings, one t
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import sys
@@ -236,9 +237,59 @@ def build_holding_rows(path: Path, period_end: str, source_url: str) -> list[tup
     return out
 
 
-def load_ads(conn, client: SecClient, period_end: date) -> tuple[int, int]:
-    """Look up the filing, read the saved document and insert one filing and its holdings
-    in one transaction. Returns (filing_id, holdings inserted)."""
+class HashMismatch(RuntimeError):
+    """The document on disk differs from the hash recorded when the filing was loaded."""
+
+
+def sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def insert_filing(conn, filing: dict, holdings: list[tuple], sha256: str) -> tuple[str, int | None, int]:
+    """One transaction per filing. Returns (status, filing_id, holdings inserted).
+
+    status is 'loaded' (new filing), 'unchanged' (accession already loaded, hash matches, nothing
+    written) or 'hash_recorded' (already loaded before hashes existed: the hash is recorded once).
+    Raises HashMismatch when the filing is loaded and the hash differs."""
+    with conn.transaction():
+        row = conn.execute(
+            "INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, "
+            "accession_number, source_url, source_sha256) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (accession_number) DO NOTHING RETURNING filing_id",
+            (filing["cik"], filing["bdc_name"], filing["form_type"], filing["period_end"],
+             filing["filing_date"], filing["accession"], filing["source_url"], sha256),
+        ).fetchone()
+        if row is None:
+            recorded = conn.execute(
+                "SELECT filing_id, source_sha256 FROM raw_filings WHERE accession_number = %s",
+                (filing["accession"],),
+            ).fetchone()
+            filing_id, stored = recorded
+            if stored is None:
+                conn.execute("UPDATE raw_filings SET source_sha256 = %s WHERE filing_id = %s", (sha256, filing_id))
+                return "hash_recorded", filing_id, 0
+            if stored != sha256:
+                raise HashMismatch(
+                    f"{filing['accession']}: file sha256 {sha256[:12]} differs from recorded {stored[:12]}")
+            return "unchanged", filing_id, 0
+        filing_id = row[0]
+        with conn.cursor() as cur:
+            cur.executemany(
+                "INSERT INTO raw_holdings (filing_id, portfolio_company_raw, industry_raw, "
+                "instrument_type_raw, interest_rate_raw, maturity_date_raw, principal_raw, "
+                "principal_unit_raw, cost_raw, fair_value_raw, footnotes_raw, row_order, source_url) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                [(filing_id, *h) for h in holdings],
+            )
+    return "loaded", filing_id, len(holdings)
+
+
+def load_ads(conn, client: SecClient, period_end: date) -> tuple[str, int | None, int]:
+    """Look up the filing, read the saved document and load it. Returns insert_filing's result."""
     subs = client.get_json(f"https://data.sec.gov/submissions/CIK{ADS_CIK}.json")
     if subs.get("name", "").strip().lower() != ADS_EXPECTED_NAME.lower():
         raise RuntimeError(f"CIK {ADS_CIK} name is {subs.get('name')!r}, expected {ADS_EXPECTED_NAME!r}")
@@ -250,24 +301,12 @@ def load_ads(conn, client: SecClient, period_end: date) -> tuple[int, int]:
     path = RAW_DIR / f"ads_10q_{period_end.isoformat()}.htm"
     if not path.exists():
         path, _ = download_filing(client, ADS_CIK, filing["accession"], "ads", period_end.isoformat())
+    sha = sha256_file(path)
     holdings = build_holding_rows(path, period_end.isoformat(), source_url)
-    with conn.transaction():
-        row = conn.execute(
-            "INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, "
-            "accession_number, source_url) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING filing_id",
-            (ADS_CIK, ADS_EXPECTED_NAME, ADS_FORM_TYPE, period_end, filing["filing_date"],
-             filing["accession"], source_url),
-        ).fetchone()
-        filing_id = row[0]
-        with conn.cursor() as cur:
-            cur.executemany(
-                "INSERT INTO raw_holdings (filing_id, portfolio_company_raw, industry_raw, "
-                "instrument_type_raw, interest_rate_raw, maturity_date_raw, principal_raw, "
-                "principal_unit_raw, cost_raw, fair_value_raw, footnotes_raw, row_order, source_url) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                [(filing_id, *h) for h in holdings],
-            )
-    return filing_id, len(holdings)
+    meta = {"cik": ADS_CIK, "bdc_name": ADS_EXPECTED_NAME, "form_type": ADS_FORM_TYPE,
+            "period_end": period_end, "filing_date": filing["filing_date"],
+            "accession": filing["accession"], "source_url": source_url}
+    return insert_filing(conn, meta, holdings, sha)
 
 
 def main() -> int:
@@ -282,11 +321,16 @@ def main() -> int:
     client = SecClient()
     with psycopg.connect(url) as conn:
         try:
-            filing_id, n = load_ads(conn, client, period_end)
-        except psycopg.errors.UniqueViolation:
-            print("This filing is already loaded (accession_number is unique). Nothing was changed.")
+            status, filing_id, n = load_ads(conn, client, period_end)
+        except HashMismatch as e:
+            print(f"Refused: the filing document on disk does not match the recorded hash. {e}")
             return 1
-    print(f"Loaded filing_id {filing_id} with {n} holdings for {period_end}.")
+    if status == "loaded":
+        print(f"Loaded filing_id {filing_id} with {n} holdings for {period_end}.")
+    elif status == "hash_recorded":
+        print(f"Already loaded (filing_id {filing_id}), no changes to holdings. Document hash recorded for the first time.")
+    else:
+        print(f"Already loaded (filing_id {filing_id}), no changes.")
     print(f"SEC requests: {len(client.status_log)}, 403s: {sum(1 for _, s in client.status_log if s == 403)}")
     return 0
 

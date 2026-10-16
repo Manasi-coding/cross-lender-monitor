@@ -1,3 +1,4 @@
+Frozen on Day 3. Changes need a note in DECISIONS.md.
 CONTRACT.md: API contract, E1 to E12
 Single source of truth for endpoint shapes, conventions, errors and write rules. SPEC.md owns scope, schema, evaluation method, tests and schedule. This file owns the API. phase_wise.md and frontend.md carry only the endpoint index (ID, method, path, page), copied from the Endpoint list below so both plans name the same endpoints, and they link here for everything else. If an endpoint changes, change this file first, then the index in both plans.
 Reflects decisions A1 (one measured quarter, no period selector), A2 (exact-name borrower grouping), A8 (no review-confirmed metric) and the accepted fixes from the discrepancy review.

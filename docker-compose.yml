@@ -7,6 +7,8 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: cross_lender
+    ports:
+      - "127.0.0.1:5432:5432"   # local development and pytest only
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

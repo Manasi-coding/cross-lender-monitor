@@ -1,0 +1,90 @@
+name: CI
+
+# Versions are pinned to match the Dockerfiles and docker-compose.yml:
+# Python 3.11.14, Node 24.13.0, Postgres 16.15, nginx 1.28.0.
+on:
+  push:
+  pull_request:
+
+env:
+  PYTHON_VERSION: "3.11.14"
+  NODE_VERSION: "24.13.0"
+
+jobs:
+  pipeline-tests:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cross_lender
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cross_lender"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/cross_lender
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+      - run: pytest --cov=pipeline --cov-report=term
+
+  api-tests:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cross_lender
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cross_lender"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/cross_lender
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+
+  web-build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci
+      # tsc --noEmit (typecheck) then vite build
+      - run: npm run build
+
+  docker-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      # compose reads env_file: .env, which is gitignored. The example file has placeholders only.
+      - run: cp .env.example .env
+      - run: docker compose --profile tools build

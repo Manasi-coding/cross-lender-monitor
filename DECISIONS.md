@@ -74,3 +74,8 @@ Day 1 gates all pass. Items that remain before closing Day 1:
 ## 8. What comes next
 
 Week 1 (Days 2 to 7), from `Week1_Detailed_Plan.md`: vertical slice, schema (18 tables), CI and contract freeze, full ingest with per-filer adapters (HTML-assisted for HPS and ORCIC, footnote patterns in config), matching pipeline, labeling tools and 100 tuning labels, facilities and API. The matcher freezes on Day 8 morning.
+## 9. Day 3 decisions
+
+- API error codes: The frozen API contract now uses NOT_IMPLEMENTED, NOT_FOUND, and INTERNAL_ERROR. These codes were not explicitly named in the earlier contract, so they are recorded here as a Day 3 contract decision.
+- source_sha256 migration: source_sha256 was added to raw_filings in migration 006 rather than changing migration 001, because the original migration had already been applied.
+- Idempotent ingest: Re-running ingest on the same fixture is a clean no-op. The fixture SHA-256 is also checked so that a changed source file cannot silently replace the data from the original ingest.

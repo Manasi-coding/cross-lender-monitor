@@ -5,7 +5,9 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "express": "5.3.0",
@@ -15,6 +17,9 @@
     "@types/express": "5.0.6",
     "@types/node": "24.19.2",
     "@types/pg": "8.23.1",
-    "typescript": "5.9.3"
+    "@types/supertest": "7.2.1",
+    "supertest": "7.3.1",
+    "typescript": "5.9.3",
+    "vitest": "5.0.5"
   }
 }
