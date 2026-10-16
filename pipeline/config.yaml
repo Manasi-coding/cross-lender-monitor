@@ -41,3 +41,69 @@ blocking_recall:
   seed: 1
 freeze:
   hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py]   # add any helper module they import
+# Per-filer adapters (phase_wise.md Phase 3). Not part of the matcher hash.
+# Tag names were verified on the 2026-06-30 filings (docs/day1_notes.md), not assumed.
+# unfunded_pattern and non_accrual_pattern are case-insensitive substrings matched against the
+# filer's own footnote text. null means the evidence shows no such footnote for that filer.
+filers:
+  ads:
+    adapter: ads
+    cik: "0001837532"
+    expected_name_fragment: apollo debt solutions
+    fixture_label: ads
+    form_type: 10-Q
+    tags:
+      fair_value: us-gaap:InvestmentOwnedAtFairValue
+      principal: us-gaap:InvestmentOwnedBalancePrincipalAmount
+      cost: us-gaap:InvestmentOwnedAtCost
+      spread: us-gaap:InvestmentBasisSpreadVariableRate
+      floor: us-gaap:InvestmentInterestRateFloor
+      fixed_rate: us-gaap:InvestmentInterestRate
+      pik_rate: us-gaap:InvestmentInterestRatePaidInKind
+      shares: us-gaap:InvestmentOwnedBalanceShares
+    text_tags:
+      maturity: us-gaap:InvestmentMaturityDate
+      reference_rate: us-gaap:InvestmentVariableInterestRateTypeExtensibleEnumeration
+    unfunded_pattern: null
+    non_accrual_pattern: "non-accrual status"   # "Loan was on non-accrual status as of June 30, 2026." (22 rows)
+    # ADS industry comes from the identifier prefix, matched against the 'Total <industry>' names printed in the
+    # schedule. These two prefixes do not match any printed name. MANUAL, checked against the HTML table:
+    industry_aliases:
+      "Electric Equipment": "Electrical Equipment"        # IW Buyer rows: the identifier drops the 'al'; the table header is 'Electrical Equipment'
+      "Heat Makes Sense": "Personal Care Products"        # KDC/ONE row: the identifier puts the company group in the industry slot; the table puts it under 'Personal Care Products'
+  hps:
+    adapter: hps
+    cik: "0001838126"
+    expected_name_fragment: hps corporate lending
+    fixture_label: hps_corporate_lending
+    form_type: 10-Q
+    tags: &tags_us_gaap
+      fair_value: us-gaap:InvestmentOwnedAtFairValue
+      principal: us-gaap:InvestmentOwnedBalancePrincipalAmount
+      cost: us-gaap:InvestmentOwnedAtCost
+      spread: us-gaap:InvestmentBasisSpreadVariableRate
+      floor: us-gaap:InvestmentInterestRateFloor
+      fixed_rate: us-gaap:InvestmentInterestRate
+      pik_rate: us-gaap:InvestmentInterestRatePaidInKind
+      shares: us-gaap:InvestmentOwnedBalanceShares
+    text_tags: &text_tags_us_gaap
+      maturity: us-gaap:InvestmentMaturityDate
+      reference_rate: us-gaap:InvestmentVariableInterestRateTypeExtensibleEnumeration
+    html:                       # maturity and typing come from the main schedule table
+      amounts_after_maturity: 3 # par, cost, fair value
+      par_on_rows_without_maturity: false   # equity rows print units, not par
+    unfunded_pattern: "unfunded loan commitment"
+    non_accrual_pattern: "non-accrual status"   # "Loan was on non-accrual status as of June 30, 2026." (13 rows)
+  orcic:
+    adapter: orcic
+    cik: "0001812554"
+    expected_name_fragment: blue owl credit income
+    fixture_label: blue_owl_credit_income
+    form_type: 10-Q
+    tags: *tags_us_gaap
+    text_tags: *text_tags_us_gaap
+    html:
+      amounts_after_maturity: 4 # par, units, cost, fair value
+      par_on_rows_without_maturity: true
+    unfunded_pattern: null      # "partially unfunded" rows sit near par (median 0.986) and stay in
+    non_accrual_pattern: "non-accrual status"   # "Investment was on non-accrual status as of June 30, 2026." (4 rows)

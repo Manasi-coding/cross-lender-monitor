@@ -1,7 +1,8 @@
-"""SEC ingestion: rate-limited SEC client (Phase 0) and the Day 2 load of the ADS filing.
+"""SEC ingestion: rate-limited SEC client and the load of each configured filer's filing.
 
-Run: python -m pipeline.ingest
-Loads one filing into raw_filings and its schedule rows into raw_holdings, one transaction.
+Run: python -m pipeline.ingest [--filers ads,hps,orcic]
+One transaction per filing: the filing row and its schedule rows (raw_filings, raw_holdings).
+A rerun is a no-op. Per-filer parsing lives in pipeline/adapters.py.
 """
 from __future__ import annotations
 
@@ -162,79 +163,31 @@ def phase0_check() -> int:
     return 0 if ok and n403 == 0 else 1
 
 
-# ---------------------------------------------------------------------------
-# Day 2 vertical slice: ADS filing into raw_filings and raw_holdings
-# ---------------------------------------------------------------------------
-ADS_FORM_TYPE = "10-Q"
+HASHES_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "filing_hashes.json"
 
 
-def plain(value: Decimal | None) -> str | None:
-    """Decimal as plain text (no exponent), as parsed. None stays None."""
-    return None if value is None else format(value, "f")
+class CommittedHashMismatch(RuntimeError):
+    """A filing document differs from the hash committed in fixtures/filing_hashes.json."""
 
 
-def split_identifier_raw(ident: str) -> tuple[str, str | None, str | None, str | None]:
-    """Raw text pieces of the ADS investment identifier, unchanged:
-    '<industry> <company> Investment Type <type> Interest Rate <rate> Maturity Date <date>'.
-    The industry and company run together in the first piece, so industry_raw stays NULL."""
-    parts = re.split(r"\s+Investment Type\s+", ident, maxsplit=1)
-    name = parts[0].strip()
-    rest = parts[1] if len(parts) > 1 else None
-    inst = rate = maturity = None
-    if rest:
-        m = re.search(r"\s+Maturity Date\s+(.*)$", rest)
-        if m:
-            maturity = m.group(1).strip() or None
-            rest = rest[: m.start()]
-        m = re.search(r"\s+Interest Rate\s+(.*)$", rest)
-        if m:
-            rate = m.group(1).strip() or None
-            rest = rest[: m.start()]
-        inst = rest.strip() or None
-    return name.strip(), inst, rate, maturity
+def check_committed_hash(key: str, period_end: date, accession: str, sha256: str,
+                         hashes_path: Path = HASHES_PATH) -> str:
+    """Compare the document hash and accession with the committed record. Returns 'ok' or
+    'no committed hash'. Raises CommittedHashMismatch, naming both values, on any difference."""
+    import json
 
-
-def linked_footnotes(path: Path, contexts: dict, facts: list, period_end: str) -> dict[str, list[str]]:
-    """Footnote texts (ix:footnote linked by ix:relationship) of each investment identifier at period_end."""
-    from pipeline.ixbrl import IDENTIFIER_AXIS, NS_IX
-    root = etree.parse(str(path), etree.XMLParser(huge_tree=True, recover=True)).getroot()
-    notes = {el.get("id"): " ".join("".join(el.itertext()).split())
-             for el in root.iter(f"{{{NS_IX}}}footnote")}
-    fact_notes: dict[str, set[str]] = {}
-    for rel in root.iter(f"{{{NS_IX}}}relationship"):
-        for src in (rel.get("fromRefs") or "").split():
-            fact_notes.setdefault(src, set()).update((rel.get("toRefs") or "").split())
-    elements = list(root.iter(f"{{{NS_IX}}}nonFraction"))
-    if len(elements) != len(facts):
-        raise RuntimeError("nonFraction element count differs from parsed facts")
-    out: dict[str, set[str]] = {}
-    for el, fact in zip(elements, facts):
-        fid = el.get("id")
-        if not fid or fid not in fact_notes:
-            continue
-        c = contexts.get(fact.context_ref)
-        if c and c.instant == period_end and IDENTIFIER_AXIS in c.typed and len(c.dims) == 1:
-            out.setdefault(c.typed[IDENTIFIER_AXIS], set()).update(
-                notes[n] for n in fact_notes[fid] if n in notes)
-    return {k: sorted(v) for k, v in out.items()}
-
-
-def build_holding_rows(path: Path, period_end: str, source_url: str) -> list[tuple]:
-    """One tuple per schedule row (a row with a fair value or a cost), values as parsed."""
-    from pipeline.ixbrl import assemble_investments, parse_ixbrl
-    contexts, facts, text_facts = parse_ixbrl(path)
-    rows = assemble_investments(contexts, facts, text_facts, period_end)
-    schedule = [r for r in rows if r["fair_value"] is not None or r["cost"] is not None]
-    notes = linked_footnotes(path, contexts, facts, period_end)
-    out = []
-    for order, r in enumerate(schedule, start=1):
-        name, inst, rate, maturity = split_identifier_raw(r["identifier"])
-        out.append((
-            name, None, inst, rate, maturity,
-            plain(r["principal"]), r["principal_unit"], plain(r["cost"]), plain(r["fair_value"]),
-            " | ".join(notes.get(r["identifier"], [])) or None, order, source_url,
-        ))
-    return out
+    recorded = json.loads(hashes_path.read_text(encoding="utf-8")) if hashes_path.exists() else {}
+    entry = recorded.get(period_end.isoformat(), {}).get(key)
+    if entry is None:
+        return "no committed hash"
+    if entry["accession"] != accession:
+        raise CommittedHashMismatch(
+            f"[{key}] accession differs. committed {entry['accession']}, EDGAR now lists {accession}.")
+    if entry["sha256"] != sha256:
+        raise CommittedHashMismatch(
+            f"[{key}] {accession} document hash differs. "
+            f"committed sha256: {entry['sha256']}  downloaded sha256: {sha256}")
+    return "ok"
 
 
 class HashMismatch(RuntimeError):
@@ -288,51 +241,83 @@ def insert_filing(conn, filing: dict, holdings: list[tuple], sha256: str) -> tup
     return "loaded", filing_id, len(holdings)
 
 
-def load_ads(conn, client: SecClient, period_end: date) -> tuple[str, int | None, int]:
-    """Look up the filing, read the saved document and load it. Returns insert_filing's result."""
-    subs = client.get_json(f"https://data.sec.gov/submissions/CIK{ADS_CIK}.json")
-    if subs.get("name", "").strip().lower() != ADS_EXPECTED_NAME.lower():
-        raise RuntimeError(f"CIK {ADS_CIK} name is {subs.get('name')!r}, expected {ADS_EXPECTED_NAME!r}")
+def load_filer(conn, client: SecClient, key: str, cfg: dict, period_end: date):
+    """Look up one filer's filing for period_end, read the saved document, run its adapter and load it.
+    Returns (status, filing_id, holdings inserted, adapter stats)."""
+    from pipeline.adapters import Filing, make_adapter
+
+    cik = cfg["cik"]
+    subs = client.get_json(f"https://data.sec.gov/submissions/CIK{cik}.json")
+    edgar_name = subs.get("name", "")
+    if cfg["expected_name_fragment"] not in edgar_name.strip().lower():
+        raise RuntimeError(f"CIK {cik} name is {edgar_name!r}, expected it to contain {cfg['expected_name_fragment']!r}")
     match = [r for r in recent_10q(subs, n=50) if r["period_end"] == period_end.isoformat()]
     if len(match) != 1:
-        raise RuntimeError(f"expected 1 {ADS_FORM_TYPE} for {period_end}, found {len(match)}")
-    filing = match[0]
-    _, source_url = find_primary_document(client, ADS_CIK, filing["accession"])
-    path = RAW_DIR / f"ads_10q_{period_end.isoformat()}.htm"
+        raise RuntimeError(f"{key}: expected 1 {cfg['form_type']} for {period_end}, found {len(match)}")
+    accession = match[0]["accession"]
+    _, source_url = find_primary_document(client, cik, accession)
+    path = RAW_DIR / f"{cfg['fixture_label']}_10q_{period_end.isoformat()}.htm"
     if not path.exists():
-        path, _ = download_filing(client, ADS_CIK, filing["accession"], "ads", period_end.isoformat())
+        path, _ = download_filing(client, cik, accession, cfg["fixture_label"], period_end.isoformat())
     sha = sha256_file(path)
-    holdings = build_holding_rows(path, period_end.isoformat(), source_url)
-    meta = {"cik": ADS_CIK, "bdc_name": ADS_EXPECTED_NAME, "form_type": ADS_FORM_TYPE,
-            "period_end": period_end, "filing_date": filing["filing_date"],
-            "accession": filing["accession"], "source_url": source_url}
-    return insert_filing(conn, meta, holdings, sha)
+    committed = check_committed_hash(key, period_end, accession, sha)
+    filing = Filing(label=cfg["fixture_label"], cik=cik, edgar_name=edgar_name, period_end=period_end,
+                    path=path, source_url=source_url, accession=accession)
+    adapter = make_adapter(key, cfg)
+    holdings = adapter.parse(filing)
+    meta = {"cik": cik, "bdc_name": edgar_name, "form_type": cfg["form_type"], "period_end": period_end,
+            "filing_date": match[0]["filing_date"], "accession": accession, "source_url": source_url}
+    status, filing_id, n = insert_filing(conn, meta, holdings, sha)
+    adapter.stats["committed_hash_" + committed.replace(" ", "_")] = 1
+    return status, filing_id, n, adapter.stats
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
     import psycopg
-    from pipeline.config import load_env_file, measured_period_end
+
+    from pipeline.config import load_config, load_env_file, measured_period_end
+
+    parser = argparse.ArgumentParser(description="Load the measured quarter's filings into raw_filings and raw_holdings.")
+    parser.add_argument("--filers", default="", help="comma separated filer keys from config.yaml (default: all)")
+    args = parser.parse_args(argv)
 
     load_env_file()
     period_end = measured_period_end()
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:
         raise RuntimeError("DATABASE_URL is not set.")
+    filers = load_config()["filers"]
+    wanted = [k.strip() for k in args.filers.split(",") if k.strip()] or list(filers)
+    unknown = [k for k in wanted if k not in filers]
+    if unknown:
+        raise RuntimeError(f"unknown filer keys {unknown}; config.yaml has {list(filers)}")
+
     client = SecClient()
+    code = 0
     with psycopg.connect(url) as conn:
-        try:
-            status, filing_id, n = load_ads(conn, client, period_end)
-        except HashMismatch as e:
-            print(f"Refused: the filing document on disk does not match the recorded hash. {e}")
-            return 1
-    if status == "loaded":
-        print(f"Loaded filing_id {filing_id} with {n} holdings for {period_end}.")
-    elif status == "hash_recorded":
-        print(f"Already loaded (filing_id {filing_id}), no changes to holdings. Document hash recorded for the first time.")
-    else:
-        print(f"Already loaded (filing_id {filing_id}), no changes.")
+        for key in wanted:
+            try:
+                status, filing_id, n, stats = load_filer(conn, client, key, filers[key], period_end)
+            except CommittedHashMismatch as e:
+                print("!!! FILING DOCUMENT DOES NOT MATCH THE COMMITTED HASH. Nothing was loaded for this filer. !!!")
+                print(f"    {e}")
+                return 2
+            except HashMismatch as e:
+                print(f"[{key}] Refused: the filing document on disk does not match the recorded hash. {e}")
+                code = 1
+                continue
+            if status == "loaded":
+                print(f"[{key}] Loaded filing_id {filing_id} with {n} holdings for {period_end}.")
+            elif status == "hash_recorded":
+                print(f"[{key}] Already loaded (filing_id {filing_id}), no changes to holdings. Document hash recorded for the first time.")
+            else:
+                print(f"[{key}] Already loaded (filing_id {filing_id}), no changes.")
+            for k in sorted(stats):
+                print(f"      {k}: {stats[k]}")
     print(f"SEC requests: {len(client.status_log)}, 403s: {sum(1 for _, s in client.status_log if s == 403)}")
-    return 0
+    return code
 
 
 if __name__ == "__main__":

@@ -25,6 +25,9 @@ Docs: `SPEC.md` (scope, schema, evaluation, tests), `CONTRACT.md` (API E1 to E12
 - HTML-to-XBRL join: HPS 796 of 798 rows (99.7%), ORCIC 515 of 515 (100%).
 - Day 4 adapter work: join HTML to XBRL on (principal, cost, fair value) with thousands scale and name to break ties; drop XBRL rows with no main-schedule row; parse ORCIC maturity as month and year, set to month end. In the HTML-to-XBRL join on principal and cost, a printed dash is read as zero. This does not apply to fair value: see section 4 (SK Neptune Husky).
 - ADS spot-checks against the filing (Corpuls, North American Rail, IQN Holding): checked, matches.
+- **ADS industry:** `industry_raw` is set by longest-prefix match of the identifier against the 57 printed "Total <industry>" names (813 of 816 rows). A manual alias map in `config.yaml` covers the other 3 rows: the two IW Buyer rows ("Electric Equipment" maps to "Electrical Equipment") and the Heat Makes Sense KDC/ONE row (maps to "Personal Care Products", the header it sits under in the table).
+- **ORCIC total tie:** the loaded ORCIC fair value sum (35,713,477,000) equals the printed total (35,690,147 thousand) only after the three printed "misc. debt commitments" subtotal lines (minus 23,130, minus 73 and minus 127 thousand) are counted. Those lines are not loaded as rows.
+- **ORCIC maturity:** `maturity_date_raw` keeps the printed "M/YYYY" (437 rows); normalize converts it to the month end.
 
 ## 3. Currency rule
 
@@ -47,6 +50,9 @@ Docs: `SPEC.md` (scope, schema, evaluation, tests), `CONTRACT.md` (API E1 to E12
 - A dash cannot be told apart from "zero" or "not reported", and the fair value sum reconciles to the filing total either way.
 - **Decision:** do not read the dash as zero. The row is kept in `facility_comparisons` with `fair_value_pct_par` NULL and `excluded_reason = NULL_FAIR_VALUE`. No zero mark is manufactured. It is 1 of 637 ADS funded rows.
 - Same rule for all filers: a dash on fair value is NULL, never zero, unless the filing text says the fair value is zero.
+- **HPS names:** the printed table name replaces the XBRL name, because the XBRL name carries an index (for example "Arcfield Acquisition Corp 1").
+- **HPS floors:** HPS rate strings carry no floor. Floors are stated in footnote text ("The interest rate floor ... was X%" on 588 rows, "There are no interest rate floors" on 171 rows), and ORCIC has no floor data in any form.
+- **Per-filer footnote patterns:** unfunded: HPS "unfunded loan commitment" (215 rows, 214 funded); ORCIC has none, because a generic "unfunded" match would flag 121 rows (119 funded) that sit near par; ADS has none. Non-accrual: "non-accrual status" for all three (ADS 22 rows, HPS 13, ORCIC 4).
 
 ## 5. Overlap gate
 
@@ -54,6 +60,7 @@ Docs: `SPEC.md` (scope, schema, evaluation, tests), `CONTRACT.md` (API E1 to E12
 - Baseline: 112 names (106 USD-only), 17 in all three (15 USD-only). After excluding the 214 footnote (6) rows: 111 (105 USD-only). **Gate passes.**
 - Crude cross-BDC candidate pairs (not matching): 308 baseline (ADS to HPS 137, ADS to ORCIC 48, HPS to ORCIC 123); 251 excluding negative rows; **200 excluding all 214 (6) rows** (96 distinct names).
 - Overlap counts must always be reported with and without non-USD rows.
+- **Overlap on real ingest:** 117 names in 2 or more BDCs (109 USD-only), against 112 (106) on Day 1. Excluding the 32 ADS fallback rows reproduces the Day 1 numbers, so the change comes from those rows now having clean names.
 
 ## 6. Spec changes applied
 
@@ -79,3 +86,9 @@ Week 1 (Days 2 to 7), from `Week1_Detailed_Plan.md`: vertical slice, schema (18 
 - API error codes: The frozen API contract now uses NOT_IMPLEMENTED, NOT_FOUND, and INTERNAL_ERROR. These codes were not explicitly named in the earlier contract, so they are recorded here as a Day 3 contract decision.
 - source_sha256 migration: source_sha256 was added to raw_filings in migration 006 rather than changing migration 001, because the original migration had already been applied.
 - Idempotent ingest: Re-running ingest on the same fixture is a clean no-op. The fixture SHA-256 is also checked so that a changed source file cannot silently replace the data from the original ingest.
+- Compose db port: the compose db is published on 127.0.0.1:5432 for local pytest, and CI uses a service container.
+
+## 10. Day 3 and Day 4 additions
+
+- **Committed filing hashes:** `fixtures/filing_hashes.json` holds the accession and sha256 of all three filings. Ingest exits with code 2 and prints both hashes if a downloaded file differs.
+- **ADS filing hash:** the re-downloaded ADS document has a different sha256 from Day 3 for the same accession (c3db46db... against ebbb7a1e...). It parses to identical content on all 816 rows; the old file was lost, so the cause is unexplained, and the new hash is the recorded one.

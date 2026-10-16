@@ -1,0 +1,20 @@
+{
+  "_comment": "sha256 of each filing document as downloaded from EDGAR (fixtures/raw is not committed). ingest fails if a document differs. The ADS hash at Day 3 was ebbb7a1e2371c39d... for the same accession; the parsed content was identical (816 rows) and that file was lost, so the cause is unexplained.",
+  "2026-06-30": {
+    "ads": {
+      "accession": "0001193125-26-341358",
+      "sha256": "c3db46db93b87d47f6e8a29033aa552c592469cc124b0b17e497a87d4336c898",
+      "bytes": 40784786
+    },
+    "hps": {
+      "accession": "0001628280-26-056772",
+      "sha256": "f9f76e915c9dc4ce08c90c764b75ad9f785609f62f7c6178aa747a0e8c0597a4",
+      "bytes": 15102907
+    },
+    "orcic": {
+      "accession": "0001812554-26-000047",
+      "sha256": "7895dbf4ba4490f40bfbccc63c2cd418c9a39c9bf8a1e8b6ba33d19750e8202d",
+      "bytes": 13984357
+    }
+  }
+}
