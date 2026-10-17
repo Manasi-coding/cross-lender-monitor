@@ -40,9 +40,10 @@ bands:
 divergence:
   mild_pts: 1.0
   flagged_pts: 2.0
-sampling:
-  tuning_size: 100
-  heldout_per_band: 25
+sampling:                          # not part of the matcher hash; no label moves a threshold (SPEC 12.6)
+  tuning_size: 40                  # diagnostic tuning pairs, drawn at random from all measured-period candidate pairs
+  heldout_auto: 60                 # held-out AUTO band sample size, adjustable (Day 8)
+  heldout_per_band: 25             # held-out, every other band: min(25, band size) (Day 8)
   seed: 1                          # fixed so draws are reproducible
 evaluation:
   bootstrap_resamples: 1000

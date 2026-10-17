@@ -1,5 +1,6 @@
 import express, { NextFunction, Request, Response } from "express";
 import type { Pool } from "pg";
+import { registerLabeling } from "./labeling";
 
 // Convention: NUMERIC values leave the API as strings, exactly as Postgres returns them.
 // JSON numbers are doubles, which would lose digits on money values. Conversion happens at the UI edge.
@@ -71,8 +72,7 @@ export function createApp(opts: AppOptions): express.Express {
 
   // E11, E12: mounted only when ENABLE_LABELING=true, otherwise the paths are unknown and return 404.
   if (opts.enableLabeling) {
-    app.get("/api/label/next", notImplemented("E11"));
-    app.post("/api/label", notImplemented("E12"));
+    registerLabeling(app, pool);
   }
 
   // TODO(Day 7): temporary dev route, not part of CONTRACT.md. Delete it on Day 7 together with
@@ -101,6 +101,10 @@ export function createApp(opts: AppOptions): express.Express {
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof ApiError) {
       sendError(res, err.status, err.code, err.message);
+      return;
+    }
+    if ((err as { type?: string })?.type === "entity.parse.failed") {
+      sendError(res, 400, "BAD_REQUEST", "The request body is not valid JSON.");
       return;
     }
     console.error(err);

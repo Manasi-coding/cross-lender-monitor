@@ -52,7 +52,7 @@ from decimal import Decimal as _Decimal  # noqa: E402
 
 def seed_normalized(conn, rows: list[dict]) -> list[int]:
     """Insert synthetic rows into raw_filings, raw_holdings and normalized_holdings. Each dict needs bdc_cik,
-    period_end_date, borrower_normalized, instrument_type_norm; maturity_date, spread_bps are optional.
+    period_end_date, borrower_normalized, instrument_type_norm; maturity_date, spread_bps, principal, fair_value_pct_par, excluded_reason, reference_rate are optional.
     Returns the holding ids in order."""
     ids = []
     filings: dict[tuple, int] = {}
@@ -69,8 +69,10 @@ def seed_normalized(conn, rows: list[dict]) -> list[int]:
             "RETURNING holding_id", (filings[key], r["borrower_normalized"], i)).fetchone()[0]
         conn.execute(
             "INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, instrument_type_norm, "
-            "maturity_date, spread_bps, source_url) VALUES (%s, %s, %s, %s, %s, %s, %s, 'https://example.test/f')",
+            "maturity_date, spread_bps, principal, fair_value_pct_par, excluded_reason, reference_rate, source_url) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'https://example.test/f')",
             (hid, r["bdc_cik"], r["period_end_date"], r["borrower_normalized"], r["instrument_type_norm"],
-             r.get("maturity_date"), r.get("spread_bps")))
+             r.get("maturity_date"), r.get("spread_bps"), r.get("principal"), r.get("fair_value_pct_par"),
+             r.get("excluded_reason"), r.get("reference_rate")))
         ids.append(hid)
     return ids

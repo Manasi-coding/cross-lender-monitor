@@ -1,5 +1,5 @@
 Cross-Lender Private Credit Valuation Monitor — MASTER DOC v2
-Reference this document throughout build and test. Numbers marked "default" are starting points to tune from real data on Day 8, not final answers.
+Reference this document throughout build and test. Numbers marked "default" are starting points, not final answers. The matcher thresholds are held fixed at their defaults and no label moves them (§12.6); sample sizes marked adjustable can change.
 Document map. SPEC.md (this file) owns scope, schema, evaluation method, tests and schedule. CONTRACT.md owns the API (E1 to E12) and is the only place endpoint shapes are defined. phase_wise.md and frontend.md carry only an endpoint index copied from it. phase_wise.md is the build sequence and frontend.md is the UI plan. Where either disagrees with SPEC.md or CONTRACT.md, those two win.
 
 1. Problem Statement
@@ -823,7 +823,7 @@ README.md
 [ ] Problem statement + verified ICE/Apollo anchor-partner context + retroactive-vs-origination distinction
 [ ] Architecture diagram + schema summary + API contract (link CONTRACT.md)
 [ ] Write surface stated: E7/E8 write candidate_pairs.status, E12 writes labeled_pairs behind ENABLE_LABELING (default false)
-[ ] Evaluation: AUTO-only precision (headline) and REVIEW band precision, each with its Wilson interval and its UNSURE range (UNSURE as NO_MATCH and as MATCH); optional precision if REVIEW pairs were auto-accepted, labeled exactly that, with a bootstrap interval; recall given blocking (bootstrap) and blocking recall from the independent 30-holding check (Wilson); held-out methodology (two-phase: tune on 100, freeze matcher and record the config hash, then band-stratified-sample the held-out 100 from the measured quarter, §12.6); labeled using independent evidence + attributes, never attributes alone; raw UNSURE count; who labeled; one line stating no figure includes review-queue confirmations
+[ ] Evaluation: AUTO-only precision (headline) and REVIEW band precision, each with its Wilson interval and its UNSURE range (UNSURE as NO_MATCH and as MATCH); optional precision if REVIEW pairs were auto-accepted, labeled exactly that, with a bootstrap interval; recall given blocking (bootstrap) and blocking recall from the independent 30-holding check (Wilson); held-out methodology (two-phase: label about 40 diagnostic tuning pairs with the thresholds fixed at their defaults, freeze the matcher and record the config hash, then band-stratified-sample the held-out set from the measured quarter, §12.6); labeled using independent evidence + attributes, never attributes alone; raw UNSURE count; who labeled; one line stating no figure includes review-queue confirmations
 [ ] Methodology: link to DECISIONS.md (labeling approach §12, freeze rule, thresholds). No separate methodology page.
 [ ] Divergence sensitivity table (1/2/5pt)
 [ ] Five-line glossary for non-finance readers: BDC, syndicated loan, fair value, par, mark
