@@ -43,3 +43,34 @@ def migrated_db(empty_db: str):
     with psycopg.connect(empty_db) as conn:
         apply_migrations(conn)
     return empty_db
+
+
+# ---------------------------------------------------------------- synthetic normalized rows for matching tests
+from datetime import date as _date  # noqa: E402
+from decimal import Decimal as _Decimal  # noqa: E402
+
+
+def seed_normalized(conn, rows: list[dict]) -> list[int]:
+    """Insert synthetic rows into raw_filings, raw_holdings and normalized_holdings. Each dict needs bdc_cik,
+    period_end_date, borrower_normalized, instrument_type_norm; maturity_date, spread_bps are optional.
+    Returns the holding ids in order."""
+    ids = []
+    filings: dict[tuple, int] = {}
+    for i, r in enumerate(rows):
+        key = (r["bdc_cik"], r["period_end_date"])
+        if key not in filings:
+            filings[key] = conn.execute(
+                "INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, accession_number, source_url) "
+                "VALUES (%s, %s, '10-Q', %s, %s, %s, 'https://example.test/f') RETURNING filing_id",
+                (r["bdc_cik"], "BDC " + r["bdc_cik"], r["period_end_date"], _date(2026, 8, 1),
+                 f"acc-{r['bdc_cik']}-{r['period_end_date']}")).fetchone()[0]
+        hid = conn.execute(
+            "INSERT INTO raw_holdings (filing_id, portfolio_company_raw, row_order, source_url) VALUES (%s, %s, %s, 'https://example.test/f') "
+            "RETURNING holding_id", (filings[key], r["borrower_normalized"], i)).fetchone()[0]
+        conn.execute(
+            "INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, instrument_type_norm, "
+            "maturity_date, spread_bps, source_url) VALUES (%s, %s, %s, %s, %s, %s, %s, 'https://example.test/f')",
+            (hid, r["bdc_cik"], r["period_end_date"], r["borrower_normalized"], r["instrument_type_norm"],
+             r.get("maturity_date"), r.get("spread_bps")))
+        ids.append(hid)
+    return ids

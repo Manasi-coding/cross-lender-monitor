@@ -72,6 +72,7 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
     volumes:
       - ./fixtures:/app/fixtures
+      - ./docs:/app/docs          # block.py and match.py append to docs/run_times.jsonl
     depends_on:
       db:
         condition: service_healthy

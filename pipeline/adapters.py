@@ -21,7 +21,8 @@ from pathlib import Path
 from lxml import etree
 
 from pipeline import ixbrl as X
-from pipeline.html_schedule import HtmlRow, parse_main_schedule
+from pipeline.html_schedule import AdsHtmlRow, HtmlRow, parse_ads_schedule, parse_main_schedule
+from pipeline.normalize import collapse_repeated_prefix, strip_industry_prefix
 from pipeline.ixbrl import (IDENTIFIER_AXIS, NS_IX, assemble_investments, parse_ixbrl,
                             split_pipe_identifier)
 
@@ -166,9 +167,66 @@ class AdsAdapter(FilerAdapter):
     ...) and runs to the rate or maturity label. Fallback 2 takes the maturity from the XBRL text fact.
     A row with no stem keeps type NULL: no type is invented."""
 
-    def parse(self, filing: Filing) -> list[RawRow]:
+    def prepare(self, filing: Filing) -> dict:
+        """XBRL schedule rows, the printed table rows and the join between them (identifier -> table row)."""
         pe = filing.period_end.isoformat()
         contexts, facts, text_facts, schedule = self.load_xbrl(filing)
+        typed = [r for r in schedule if TYPE_TOKEN.search(r["identifier"])]
+        stems = sorted({DASH_SPLIT.split(_tail(TYPE_TOKEN.split(r["identifier"], maxsplit=1)[1])[0])[0].strip()
+                        for r in typed}, key=len, reverse=True)
+        stems = [s for s in stems if s]
+        industries = ads_industry_names(filing.path)
+        html_rows = parse_ads_schedule(filing.path, industries, stems)
+        return {"pe": pe, "contexts": contexts, "facts": facts, "text_facts": text_facts, "schedule": schedule,
+                "stems": stems, "industries": industries, "html_rows": html_rows,
+                "html_for": self.join_html(schedule, html_rows)}
+
+    def join_html(self, schedule: list[dict], html_rows: list[AdsHtmlRow]) -> dict[str, AdsHtmlRow]:
+        """Join table rows to XBRL rows in thousands. Pass 1 uses (principal, cost, fair value). Pass 2 uses
+        (cost, fair value) only, because equity rows print a share count in the par column that the XBRL
+        does not carry as a principal. A dash or a missing fact is empty on both sides of the key only."""
+        def k3(x):
+            return _key(x["principal"], x["cost"], x["fair_value"])
+
+        def k2(x):
+            return _key(None, x["cost"], x["fair_value"])
+
+        used: set[int] = set()
+        found: dict[int, int] = {}
+        for label, kx, kh in (("strict", k3, lambda h: _key(h.principal, h.cost, h.fair_value, 1000)),
+                              ("relaxed", k2, lambda h: _key(None, h.cost, h.fair_value, 1000))):
+            index: dict[tuple, list[int]] = defaultdict(list)
+            for i, x in enumerate(schedule):
+                if i not in used:
+                    index[kx(x)].append(i)
+            for h in html_rows:
+                if h.order in found or h.amount_cells == 0:
+                    continue
+                cands = [i for i in index.get(kh(h), []) if i not in used]
+                if not cands:
+                    continue
+                if len(cands) > 1:
+                    self.stats[f"html_join_{label}_multi_candidates"] += 1
+                    full = _alnum((h.industry or "") + (h.group or "") + (h.legal_name or ""))
+                    same = [i for i in cands if _alnum(schedule[i]["raw_name"]).startswith(full)]
+                    if same:
+                        cands = same
+                        self.stats[f"html_join_{label}_resolved_by_name"] += 1
+                    else:
+                        self.stats[f"html_join_{label}_resolved_by_order_unexplained"] += 1
+                used.add(cands[0])
+                found[h.order] = cands[0]
+                self.stats[f"html_join_{label}"] += 1
+        self.stats["html_rows"] = len(html_rows)
+        self.stats["html_rows_without_amounts_or_match"] = len(html_rows) - len(found)
+        self.stats["xbrl_rows_without_html_row"] = len(schedule) - len(used)
+        by_order = {h.order: h for h in html_rows}
+        return {schedule[i]["identifier"]: by_order[o] for o, i in found.items()}
+
+    def parse(self, filing: Filing) -> list[RawRow]:
+        prep = self.prepare(filing)
+        pe, contexts, facts, text_facts, schedule = (prep[k] for k in ("pe", "contexts", "facts", "text_facts", "schedule"))
+        stems, industries, html_for = prep["stems"], prep["industries"], prep["html_for"]
         notes = linked_footnotes(filing.path, contexts, facts, pe)
 
         mat_tag = self.cfg["text_tags"]["maturity"]
@@ -178,12 +236,6 @@ class AdsAdapter(FilerAdapter):
             if name == mat_tag and c and c.instant == pe and IDENTIFIER_AXIS in c.typed and text:
                 text_maturity.setdefault(c.typed[IDENTIFIER_AXIS], text)
 
-        typed = [r for r in schedule if TYPE_TOKEN.search(r["identifier"])]
-        stems = sorted({DASH_SPLIT.split(_tail(TYPE_TOKEN.split(r["identifier"], maxsplit=1)[1])[0])[0].strip()
-                        for r in typed}, key=len, reverse=True)
-        stems = [s for s in stems if s]
-
-        industries = ads_industry_names(filing.path)
         aliases = self.cfg.get("industry_aliases") or {}
         prefixes = sorted(industries | set(aliases), key=len, reverse=True)
         self.stats["industry_names_in_table"] = len(industries)
@@ -238,6 +290,13 @@ class AdsAdapter(FilerAdapter):
                 self.stats["still_no_maturity"] += 1
             if rate is None:
                 self.stats["still_no_rate"] += 1
+            h = html_for.get(ident)
+            if h is not None and h.legal_name:
+                name = h.legal_name                       # the printed legal name, without industry or group
+                self.stats["name_from_html_table"] += 1
+            else:                                         # no table row: drop the industry prefix and a repeated phrase
+                name = collapse_repeated_prefix(strip_industry_prefix(name.strip(), industry))
+                self.stats["name_from_xbrl_fallback"] += 1
             out.append((name.strip(), industry, inst, rate, maturity,
                         plain(r["principal"]), unit_text(r), plain(r["cost"]), plain(r["fair_value"]),
                         " | ".join(notes.get(ident, [])) or None, order, filing.source_url))

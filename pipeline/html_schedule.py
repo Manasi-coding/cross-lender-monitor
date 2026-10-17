@@ -136,3 +136,92 @@ def parse_main_schedule(path: Path, amounts_after_maturity: int,
                 tokens=toks, element=tr,
                 header_elements=(ctx_tr["affil"], ctx_tr["section"], ctx_tr["industry"])))
     return rows
+
+
+# ---------------------------------------------------------------------------------------------------
+# ADS: the schedule prints the industry, the company group and the legal name separately. The XBRL
+# identifier runs them together ('<industry> <group> <legal name>'), so the legal name is read here.
+#   industry header (single cell, one of the printed 'Total <industry>' names)
+#   company group header (any other single cell)
+#   company row   [legal name, type, rate, maturity, par, cost, fair value, footnote markers]
+#   tranche rows  [type, rate, maturity, par, cost, fair value, footnote markers] (legal name inherited)
+# ---------------------------------------------------------------------------------------------------
+@dataclass
+class AdsHtmlRow:
+    order: int
+    industry: str | None
+    group: str | None
+    legal_name: str | None
+    type_text: str
+    rate_text: str | None
+    maturity: str | None
+    principal: Decimal | None   # thousands as printed; a dash or blank is None (join key only)
+    cost: Decimal | None
+    fair_value: Decimal | None
+    amount_cells: int
+    element: object = None
+    header_elements: tuple = ()  # industry, group and company <tr> in force, for building test excerpts
+
+
+_CURRENCY_PREFIX = re.compile(r"^(?:[$€£¥₩]|[A-Za-z]{1,4}\$?)\s*(?=[\d(])")
+
+
+def _ads_amount(tok: str) -> tuple[bool, Decimal | None]:
+    """An amount cell: digits with an optional currency prefix ('$', 'Skr 614,359') and an optional share or
+    unit suffix ('82,735 Shares'). A dash is an amount cell with no value."""
+    t = tok.strip()
+    if t in DASHES:
+        return True, None
+    core = re.sub(r"\s*(?:Shares|Units)$", "", _CURRENCY_PREFIX.sub("", t), flags=re.I)
+    if AMOUNT_RE.match(core):
+        return True, _num(core)
+    return False, None
+
+
+def parse_ads_schedule(path: Path, industries: set[str], stems: list[str], root=None) -> list[AdsHtmlRow]:
+    if root is None:
+        root = etree.parse(str(path), etree.XMLParser(huge_tree=True, recover=True)).getroot()
+    tables = [e for e in root.iter() if _ln(e) == "table"]
+    run, i = [], 0
+    while i < len(tables) and not _first_cell(tables[i]).startswith("Industry/Company"):
+        i += 1
+    while i < len(tables) and _first_cell(tables[i]).startswith("Industry/Company"):
+        run.append(tables[i])
+        i += 1
+    rows: list[AdsHtmlRow] = []
+    industry = group = legal = None
+    tr_industry = tr_group = tr_legal = None
+    for table in run:
+        for tr in table.iter():
+            if _ln(tr) != "tr":
+                continue
+            toks = [c for c in _row_cells(tr) if c and c not in CURRENCY_CELLS and c != "%"]
+            if not toks or toks[0].startswith("Industry/Company") or toks[0].lower().startswith("total"):
+                continue
+            if len(toks) == 1:
+                if toks[0] in industries:
+                    industry, tr_industry, group, legal, tr_group, tr_legal = toks[0], tr, None, None, None, None
+                else:
+                    group, tr_group, legal, tr_legal = toks[0], tr, None, None
+                continue
+            if all(_ads_amount(x)[0] for x in toks):
+                continue  # a subtotal line
+            if any(toks[0].startswith(s) for s in stems):
+                type_idx = 0
+            elif len(toks) > 1 and any(toks[1].startswith(s) for s in stems):
+                type_idx = 1
+                legal, tr_legal = toks[0], tr
+            else:
+                continue
+            rest = toks[type_idx + 1:]
+            amounts, k = [], 2
+            while k < len(rest) and len(amounts) < 3 and _ads_amount(rest[k])[0]:
+                amounts.append(_ads_amount(rest[k])[1])
+                k += 1
+            rows.append(AdsHtmlRow(
+                order=len(rows), industry=industry, group=group, legal_name=legal, type_text=toks[type_idx],
+                rate_text=rest[0] if rest else None, maturity=rest[1] if len(rest) > 1 else None,
+                principal=amounts[0] if len(amounts) == 3 else None,
+                cost=amounts[-2] if len(amounts) >= 2 else None, fair_value=amounts[-1] if amounts else None,
+                amount_cells=len(amounts), element=tr, header_elements=(tr_industry, tr_group, tr_legal)))
+    return rows

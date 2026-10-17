@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 
 from pipeline.adapters import Filing, ads_industry_names, make_adapter  # noqa: E402
 from pipeline.config import load_config  # noqa: E402
-from pipeline.html_schedule import main_schedule_tables, parse_main_schedule  # noqa: E402
+from pipeline.html_schedule import main_schedule_tables, parse_ads_schedule, parse_main_schedule  # noqa: E402
 from pipeline.ixbrl import IDENTIFIER_AXIS, NS_IX, NS_XBRLDI, NS_XBRLI, parse_ixbrl  # noqa: E402
 
 XHTML = "http://www.w3.org/1999/xhtml"
@@ -91,7 +91,7 @@ def build(src: Path, root, out: Path, pe: str, identifiers: set[str], trs: list,
         seen: set[int] = set()
         for tr in trs:
             for h in _HEADERS.get(id(tr), ()):
-                if h is not None and id(h) not in seen:
+                if h is not None and h is not tr and id(h) not in seen:
                     seen.add(id(h))
                     table.append(copy.deepcopy(h))
             table.append(copy.deepcopy(tr))
@@ -125,16 +125,32 @@ def make_ads(label: str, period: date, rules: list, out_name: str, note: str) ->
     src = RAW / f"{label}_10q_{period.isoformat()}.htm"
     filing = Filing(label, cfg["cik"], "x", period, src, "u", "a")
     adapter = make_adapter("ads", cfg)
-    _c, _f, _t, schedule = adapter.load_xbrl(filing)
-    chosen = pick([(r["identifier"], r) for r in schedule], rules)
-    assert 0 < len(chosen) <= MAX_ROWS, len(chosen)
+    prep = adapter.prepare(filing)
+    schedule, html_for, industries = prep["schedule"], prep["html_for"], prep["industries"]
+    chosen = {c[0] for c in pick([(r["identifier"], r) for r in schedule], rules)}
     root = etree.parse(str(src), etree.XMLParser(huge_tree=True, recover=True)).getroot()
+    # the adapter parsed its own tree, so read the same table rows (same order) from a tree owned here
+    mine = parse_ads_schedule(src, industries, prep["stems"], root=root)
+    order_of = {id(r.element): r.order for r in mine}
+    ident_of = {h.order: ident for ident, h in html_for.items()}
+    for ident in sorted(chosen):                      # a tranche row needs its company row for the legal name
+        h = html_for.get(ident)
+        if h is not None:
+            legal_tr = mine[h.order].header_elements[2]
+            lo = order_of.get(id(legal_tr))
+            if lo is not None and lo != h.order and lo in ident_of:
+                chosen.add(ident_of[lo])
+    assert 0 < len(chosen) <= MAX_ROWS, len(chosen)
+    data = sorted((html_for[i].order for i in chosen if i in html_for))
+    trs = []
+    for o in data:
+        trs.append(mine[o].element)
+        _HEADERS[id(mine[o].element)] = mine[o].header_elements
     # the industry of each chosen row comes from the printed 'Total <industry>' rows, so keep those real rows too
-    industries = ads_industry_names(src)
     aliases = cfg.get("industry_aliases") or {}
     prefixes = sorted(industries | set(aliases), key=len, reverse=True)
     wanted = set()
-    for ident, _ in chosen:
+    for ident in chosen:
         pre = next((p for p in prefixes if ident.startswith(p + " ")), None)
         if pre is not None:
             wanted.add("Total " + aliases.get(pre, pre))
@@ -153,7 +169,7 @@ def make_ads(label: str, period: date, rules: list, out_name: str, note: str) ->
         if len(totals) >= len(wanted):
             break
     assert len(totals) == len(wanted), (len(totals), len(wanted))
-    build(src, root, OUT / out_name, period.isoformat(), {r[0] for r in chosen}, totals, header_tr, note)
+    build(src, root, OUT / out_name, period.isoformat(), chosen, trs + totals, header_tr, note)
 
 
 def make_html_assisted(key: str, rules: list, drop_rules: list, out_name: str, note: str) -> None:

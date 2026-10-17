@@ -13,7 +13,17 @@ normalization:
     second_lien: [second lien, 2nd lien]
     first_lien: [first lien, 1st lien, senior secured, unitranche]
     unsecured: [unsecured, subordinated, mezzanine]
-  equity_keywords: [common stock, preferred, warrant, units, membership interest, partnership interest, equity]
+  # The last three entries were added on Day 5 (follow-up) for ORCIC type labels that name an ownership interest.
+  equity_keywords: [common stock, preferred, warrant, units, membership interest, partnership interest, equity,
+                    lp interest, llc interest, class a interest]
+  # Filers whose raw name still carries an industry prefix or a repeated leading phrase. ADS used to be listed
+  # here; its adapter now stores the printed legal name, so no filer needs either rule at present.
+  strip_industry_prefix_filers: []
+  collapse_repeated_prefix_filers: []
+  # Only these reference rate codes are mapped. Any other code is stored as printed and reported.
+  reference_rate_codes: {E: EURIBOR, SF: SOFR, S: SOFR}
+  # first match wins, one reason per row
+  excluded_reason_order: [EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL, NULL_FAIR_VALUE]
 blocking:
   maturity_window_months: 3
   spread_window_bps: 50

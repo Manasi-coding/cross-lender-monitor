@@ -75,7 +75,8 @@ def test_numbers_are_plain_decimal_text_with_no_exponent(key, fixture):
 # ---------------------------------------------------------------- ADS
 def test_ads_typed_row_fields(ads):
     rows, _ = ads
-    r = find(rows, "Corpuls", type="First Lien Secured Debt - Term Loan")
+    r = find(rows, "Heartbeat BidCo", type="First Lien Secured Debt - Term Loan")
+    assert r[NAME] == "Heartbeat BidCo GmbH"          # the printed legal name; the group heading "Corpuls" is not part of it
     assert (r[RATE], r[MATURITY], r[PRINCIPAL], r[UNIT], r[COST], r[FV]) == (
         "E+650, 0.50% Floor", "06/28/2030", "20000000", "U_EUR", "21548000", "22706000")
 
@@ -109,13 +110,13 @@ def test_ads_identifier_without_investment_type_token_is_parsed_from_the_name_pi
     r = find(rows, "Virgin Media Secured")
     assert r[TYPE] == "First Lien Secured Debt - Corporate Bond"
     assert (r[RATE], r[MATURITY]) == ("5.50%", "05/15/2029")
-    assert r[NAME].endswith("PLC,")          # raw name keeps its trailing comma
+    assert r[NAME] == "Virgin Media Secured Finance PLC"      # the printed legal name: no industry, no group, no trailing comma
     assert stats["no_investment_type_token"] == 10 and stats["fallback_name_piece_type"] == 10
 
 
 def test_ads_rate_printed_straight_after_the_type_is_split_off(ads):
     rows, _ = ads
-    r = find(rows, "G2CI Evergreen", type="First Lien Secured Debt - Revolver")
+    r = find(rows, "Evergreen IX Borrower", type="First Lien Secured Debt - Revolver")
     assert r[RATE] == "S+475, 0.75% Floor"
 
 
@@ -129,7 +130,7 @@ def test_ads_token_glued_to_the_name_is_still_found(ads):
 
 def test_ads_equity_without_rate_or_maturity_gets_no_invented_values(ads):
     rows, _ = ads
-    r = find(rows, "Valor VCI Intermediate Topco 1")
+    r = find(rows, "VCI Intermediate Topco 1")
     assert (r[TYPE], r[RATE], r[MATURITY], r[PRINCIPAL]) == ("Common Equity - Membership Interest", None, None, None)
 
 
@@ -142,7 +143,7 @@ def test_ads_maturity_falls_back_to_the_xbrl_text_fact(ads):
 
 def test_ads_trailing_text_after_the_maturity_is_kept_as_printed(ads):
     rows, _ = ads
-    assert find(rows, "M-Files", maturity="11/27/2031 One")
+    assert find(rows, "MetaTiedot", maturity="11/27/2031 One")
 
 
 def test_ads_non_accrual_footnote_matches_the_configured_pattern(ads):
@@ -151,12 +152,23 @@ def test_ads_non_accrual_footnote_matches_the_configured_pattern(ads):
     flagged = [r for r in rows if has_note(r, pattern)]
     assert len(flagged) == 5
     assert any("SK Neptune" in r[NAME] for r in flagged)
-    assert not has_note(find(rows, "Corpuls", type="First Lien Secured Debt - Term Loan"), pattern)
+    assert not has_note(find(rows, "Heartbeat BidCo", type="First Lien Secured Debt - Term Loan"), pattern)
+
+
+def test_ads_name_is_the_printed_legal_name_without_industry_or_group(ads):
+    rows, stats = ads
+    assert stats["name_from_html_table"] == 28 and stats["name_from_xbrl_fallback"] == 0
+    assert stats["html_join_strict"] == 27 and stats["html_join_relaxed"] == 1      # the relaxed join is the equity row
+    for r in rows:
+        assert not r[NAME].startswith(r[INDUSTRY] + " ")
+    # a tranche row inherits the legal name printed on its company row
+    assert {r[NAME] for r in rows if "North American Rail" in r[NAME]} == {"North American Rail Solutions LLC"}
+    assert find(rows, "Evergreen IX Borrower", type="First Lien Secured Debt - Term Loan")[NAME] == "Evergreen IX Borrower 2023, LLC"
 
 
 def test_ads_industry_comes_from_the_identifier_prefix_and_the_printed_totals(ads):
     rows, stats = ads
-    assert find(rows, "Corpuls", type="First Lien Secured Debt - Term Loan")[INDUSTRY] == "Health Care Equipment & Supplies"
+    assert find(rows, "Heartbeat BidCo", type="First Lien Secured Debt - Term Loan")[INDUSTRY] == "Health Care Equipment & Supplies"
     assert find(rows, "North American Rail", type="First Lien Secured Debt – Term Loan", unit="U_CAD")[INDUSTRY] == "Transportation Infrastructure"
     assert find(rows, "Esdec")[INDUSTRY] == "Building Products"
     assert stats["industry_by_prefix"] == 26 and stats["industry_none"] == 0
