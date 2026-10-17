@@ -19,6 +19,8 @@ normalization:
   # Filers whose raw name still carries an industry prefix or a repeated leading phrase. ADS used to be listed
   # here; its adapter now stores the printed legal name, so no filer needs either rule at present.
   strip_industry_prefix_filers: []
+  # a parenthetical clause that starts with one of these words is removed from borrower_normalized (raw name unchanged)
+  alias_clause_starts: ["dba", "d/b/a", "f/k/a", "fka", "formerly known as", "doing business as"]
   collapse_repeated_prefix_filers: []
   # Only these reference rate codes are mapped. Any other code is stored as printed and reported.
   reference_rate_codes: {E: EURIBOR, SF: SOFR, S: SOFR}

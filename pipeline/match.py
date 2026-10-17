@@ -136,7 +136,8 @@ def list_non_auto(conn, period: date) -> None:
     print(f"\n== {len(rows)} non-AUTO candidate pairs (score order)")
     for r in rows:
         band = "REVIEW" if r[0] >= th["review_min"] else ("JUST_BELOW" if r[0] >= th["just_below_min"] else "LOW")
-        print(f"{band:<10} {r[0]:.4f} | {r[2]} | maturity {r[3]} / {r[4]} | spread {r[5]} / {r[6]}")
+        paren = "  [PARENTHETICAL IN RAW NAME]" if "(" in r[7] or "(" in r[8] else ""
+        print(f"{band:<10} {r[0]:.4f} | {r[2]} | maturity {r[3]} / {r[4]} | spread {r[5]} / {r[6]}{paren}")
         print(f"      A [{r[11][:3]}] {r[7][:80]}   -> {r[9]!r}")
         print(f"      B [{r[12][:3]}] {r[8][:80]}   -> {r[10]!r}")
 

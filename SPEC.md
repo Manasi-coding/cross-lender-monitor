@@ -9,7 +9,7 @@ This is a verified, current, named industry gap: in 2026, ICE launched ICE IDs f
 2. Solution Overview
 Ingest real SEC filings from 3 BDCs (Apollo's own Apollo Debt Solutions BDC — CIK 1837532 — plus 2 others chosen by actual borrower overlap), build a canonical borrower/facility registry via a measured entity-resolution pipeline, and compute cross-lender fair-value comparisons at the facility level, expressed as % of par, flagged by a defensible divergence threshold.
 Non-claims (state explicitly in the README): not a reconstruction of Apollo's internal valuation process; not a claim that ICE IDs are being reverse-engineered; not a claim of market-wide coverage — 3 BDCs and one measured quarter only.
-Measured set. One common quarter-end across all 3 BDCs (MEASURED_PERIOD_END, set once in .env and read by both the pipeline and the API) is the measured set. Tuning labels, held-out labels, band sizes and every reported metric come from candidate pairs of that quarter only. If a second quarter is ingested, its borrowers and facilities appear as separate rows with their own period label and carry no cross-quarter claim: nothing links a facility across quarters and no metric covers that quarter. Cross-period linking is a new, unmeasured step and is listed as future work (§14).
+Measured set. One common quarter-end across all 3 BDCs (MEASURED_PERIOD_END, set once in .env and read by both the pipeline and the API) is the measured set. Tuning labels, held-out labels, band sizes and every reported metric come from candidate pairs of that quarter only. block.py and match.py run only for MEASURED_PERIOD_END. If a second quarter is ingested, its rows may be ingested and normalized, but they produce no candidate pairs, no facilities and no label samples, and they carry no cross-quarter claim: nothing links a holding across quarters and no metric covers that quarter. Cross-period linking is a new, unmeasured step and is listed as future work (§14).
 
 3. The Application
 3.1 Actors
@@ -173,9 +173,9 @@ CREATE TABLE normalized_holdings (
   industry              TEXT,               -- carried through: used as INDEPENDENT labeling evidence (§12), not matcher input
   instrument_type_norm  TEXT NOT NULL,
   reference_rate         TEXT,
-  spread_bps             NUMERIC,
+  spread_bps             NUMERIC,              -- TOTAL spread: cash plus PIK. Compare this value; never add pik_bps to it
   floor_bps              NUMERIC,
-  pik_bps                NUMERIC DEFAULT 0,
+  pik_bps                NUMERIC DEFAULT 0,   -- the PIK part, already inside spread_bps; informational only
   maturity_date          DATE,
   principal              NUMERIC,
   principal_currency     TEXT,
@@ -183,7 +183,9 @@ CREATE TABLE normalized_holdings (
   fair_value             NUMERIC,
   fair_value_pct_par     NUMERIC,           -- NULL if principal IS NULL OR principal = 0 OR principal_currency <> 'USD' — guarded, never divide by zero
   footnotes              TEXT,              -- independent labeling evidence
-  source_url             TEXT NOT NULL
+  source_url             TEXT NOT NULL,
+  non_accrual            BOOLEAN NOT NULL DEFAULT FALSE,   -- footnote matches the filer's non-accrual pattern; the row stays in; added Day 5 (migration 007)
+  excluded_reason        TEXT                -- NULL | EQUITY_POSITION | ZERO_OR_NULL_PRINCIPAL | UNFUNDED_COMMITMENT | NON_USD_PRINCIPAL | NULL_FAIR_VALUE; one reason per row, first match wins in this order; added Day 5 (migration 007)
 );
 
 CREATE TABLE blocking_keys (
@@ -237,7 +239,7 @@ CREATE TABLE facility_comparisons (
   period_end_date     DATE NOT NULL,
   bdc_cik             TEXT NOT NULL,
   bdc_name            TEXT NOT NULL,
-  spread_bps_total    NUMERIC,                -- spread_bps + pik_bps
+  spread_bps_total    NUMERIC,                -- copy of normalized_holdings.spread_bps, already includes PIK; never add pik_bps
   principal           NUMERIC,
   fair_value_pct_par  NUMERIC,                -- NULL when excluded
   excluded_reason     TEXT,                   -- NULL | ZERO_OR_NULL_PRINCIPAL | NULL_FAIR_VALUE | NON_USD_PRINCIPAL | UNFUNDED_COMMITMENT
@@ -329,6 +331,7 @@ CREATE TABLE metric_results (
 );
 
 Guard, mandatory: fair_value_pct_par computation must check principal IS NOT NULL AND principal != 0 AND principal_currency = 'USD' and the row is not flagged by the filer's unfunded-commitment footnote pattern (configured per filer) before dividing; otherwise store NULL and exclude the row from comparisons (never silently produce Infinity/error).
+excluded_reason precedence: one reason per row, first match wins, in this order: EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL, NULL_FAIR_VALUE. A row with a reason is kept in normalized_holdings with a NULL fair_value_pct_par; it is not skipped.
 
 7. API Contract
 The API contract (E1 to E12, response shapes, error format, null rule, write rules) lives in CONTRACT.md and nowhere else. Do not copy shapes into this file. Test 12 and the shape tests in §13 check against CONTRACT.md.
@@ -341,12 +344,12 @@ Real messy data engineering + a classic hard CS problem (entity resolution) solv
 
 10. Features
 10.1 MVP (must ship)
-Ingest 3 BDCs for one measured quarter (a second quarter may be ingested but is unmeasured), same-period-end filter. Normalize → block → rapidfuzz score → candidate_pairs with AUTO/REVIEW/NO_MATCH. Facility-level comparison, % of par, null/zero-principal guarded. Divergence classification with the 1/2/5pt sensitivity table. Review queue (pairs: Confirm/Reject on candidate_pairs; clusters: Reject on their constituent pairs). Source URL on every displayed row. Docker Compose one-command start. CI running all tests.
+Ingest 3 BDCs for one measured quarter (a second quarter may be ingested and normalized, but block.py and match.py run only for MEASURED_PERIOD_END, so it produces no candidate pairs, facilities or label samples), same-period-end filter. Normalize → block → rapidfuzz score → candidate_pairs with AUTO/REVIEW/NO_MATCH. Facility-level comparison, % of par, null/zero-principal guarded. Divergence classification with the 1/2/5pt sensitivity table. Review queue (pairs: Confirm/Reject on candidate_pairs; clusters: Reject on their constituent pairs). Source URL on every displayed row. Docker Compose one-command start. CI running all tests.
 10.2 Core (don't skip for polish)
 Label using independent evidence (industry match, footnote text, borrower name in other filings, public credit agreement exhibit if any) plus attributes — never attributes alone. Principal size proximity is dropped as evidence (BDCs legitimately hold different slices of the same syndicated loan, so it's noise, not signal). A MATCH requires at least one independent signal in addition to name/maturity/spread; otherwise label UNSURE (§12.2).
 Use UNSURE freely. Report precision/recall twice — once treating UNSURE as NO_MATCH, once as MATCH — plus the raw UNSURE count, in /api/metrics and the README (§12.3). Don't report only the excluded-UNSURE version.
 Headline precision is AUTO-only, with its Wilson interval. The second figure is the REVIEW band's own precision from blind held-out labels. Review-queue confirmations never enter any metric (§12.6).
-200 hand-labeled pairs, in two phases: 100 tuning pairs first, matcher frozen, then 100 held-out pairs stratified by the now-frozen score bands (§12.6) — not stratified before tuning, which would misalign bands against whatever thresholds tuning picks.
+Hand-labeled pairs in two phases: about 40 randomly drawn blocked tuning pairs first, labeled for diagnostics only (to find normalization bugs; no label moves a threshold), then the matcher frozen at the default thresholds, then a held-out set stratified by the now-frozen score bands (AUTO sampled at a default of 60, adjustable; every other band at min(25, band size)), about 100 to 130 labels in all (§12.6).
 DECISIONS.md including the (non-circular) labeling approach and the score-band stratification.
 Schema-drift fixture test per filer.
 10.3 Stretch (buffer time only)
@@ -367,7 +370,7 @@ Term loan + revolver + delayed-draw, same borrower
 Never collapse to one match on name alone
 Instrument type must match exactly
 First lien vs second lien, same maturity
-NO_MATCH
+Not a candidate pair (blocked out by the type gate, never stored as NO_MATCH)
 Maturity drift
 3/31/2028 vs 6/30/2028
 Match within window (§12), not exact equality
@@ -395,9 +398,9 @@ Not excluded: the filer's pattern does not match; fair_value_pct_par is computed
 Filer-specific XBRL tags
 Non-standard tag names
 One schema-drift fixture per filer
-Second quarter ingested
-Facilities from two period ends
-Separate rows with period labels; no cross-quarter link, no metric coverage
+Rows from another period end ingested
+A second quarter ingested and normalized
+No candidate pairs, no facilities and no label samples for it (block.py and match.py run only for MEASURED_PERIOD_END); no cross-quarter link, no metric coverage
 Cluster with fewer than 2 usable marks
 2-holding cluster, one has zero principal
 Not materialized as a facility; compare.py logs it
@@ -429,12 +432,14 @@ Maturity window (default 3 months) and spread window (default 50 bps) remain tun
 Your labeled sample is drawn from blocked candidates — pairs the blocking step already decided to compare. Therefore the precision/recall from that labeled set is recall given blocking, not recall over all possible true matches. Add one explicit README line saying this.
 Measuring blocking recall itself requires an independent check, not a check on your blocked-sample labels. Every pair in your labeled set shares a block by construction, so "did my labeled MATCHes share a block" can never fail — it's circular in exactly the way §12.1 describes, just one level removed. Correct method: pick ~30 holdings at random, independent of blocking, manually find their true counterparts in the other BDCs' schedules (by eye, by borrower name — outside the pipeline entirely), and check whether blocking would have paired each found pair into the same block_key. Report this rate as the actual blocking-recall measurement.
 12.6 Sampling discipline — two-phase labeling, because bands depend on frozen thresholds
-Score bands are defined by the thresholds, and thresholds get tuned from labeled data — so stratifying the held-out set by band only makes sense after the matcher is frozen. Labeling all 200 pairs before tuning, then stratifying, would mean a tuning-driven threshold move silently misaligns the held-out bands from what actually ships. Fix: label in two phases, matcher frozen in between.
-Days 6–7: label 100 tuning pairs (blocked sampling, no stratification needed yet — bands don't exist until thresholds are set).
-Day 8 morning: tune thresholds on the 100 tuning pairs. Then freeze the matcher — normalization, blocking, scoring, and band edges all lock. The freeze is a recorded step: python -m pipeline.config --freeze stores the matcher hash in matcher_freeze, and from then on normalize.py, block.py and match.py refuse to run. No further changes.
-Day 8 afternoon: draw and label the held-out 100, sampled randomly within each now-frozen band (e.g. AUTO ≥0.92, REVIEW 0.80–0.92, just-below 0.65–0.80, low <0.65; ~25/band). Record each band's frame size (measured-period candidate pairs minus the tuning pairs, into band_sizes.band_size), needed to weight precision/recall across bands.
+Score bands are defined by the thresholds, so stratifying the held-out set by band only makes sense once the matcher is frozen. Thresholds stay at the defaults (auto_min 0.92, review_min 0.80, just_below_min 0.65, maturity window 3 months, spread window 50 bps), and no label moves any of them. Reason: on Day 5 the candidate pool was 313 pairs with 283 AUTO, so about 30 pairs lay near the boundary (5 REVIEW, 10 JUST_BELOW, 15 LOW), too few to tune on. Label in two phases, matcher frozen in between.
+Day 6 PM: label about 40 tuning pairs, drawn at random from the blocked candidate pairs of the measured period (no stratification, and no score bias). They are diagnostic only: they are used to find normalization bugs, and no label moves a threshold.
+Day 8 morning: thresholds are fixed at the defaults. Apply any normalization fixes the tuning pairs exposed, then freeze the matcher: normalization, blocking, scoring, and band edges all lock. The freeze is a recorded step: python -m pipeline.config --freeze stores the matcher hash in matcher_freeze, and from then on normalize.py, block.py and match.py refuse to run. No further changes.
+Day 8 afternoon: draw and label the held-out set, sampled randomly within each now-frozen band (AUTO ≥0.92, REVIEW 0.80 to 0.92, just-below 0.65 to 0.80, low <0.65). The AUTO band is sampled at a default of 60 (adjustable). Every other band is sampled at min(25, band size), so a band of 25 or fewer pairs is labeled in full. Record each band's frame size (measured-period candidate pairs minus the tuning pairs, into band_sizes.band_size), needed to weight precision/recall across bands.
 Any matcher change after step 3 invalidates the held-out set. If a bug forces a change, re-draw and re-label a fresh held-out 100 against the new frozen bands — don't reuse the old one.
-Pool and enforcement. Tuning and held-out pairs are drawn only from candidate pairs in the measured period, and the held-out frame excludes the tuning pairs. The sampling script assigns each held-out pair its band from candidate_pairs.score at draw time and stores it in label_samples.score_band. Freeze enforcement (full rules in phase_wise.md §6.8): config --freeze writes the matcher hash (the config sections plus the matcher source files) to matcher_freeze. The held-out draw refuses to run without a freeze row, refuses if the current hash differs from it, and copies the hash into band_sizes. evaluate.py refuses if the current hash differs from either. This enforces step 4 mechanically, including the window between the freeze and the draw. Metrics read only labeled_pairs, label_samples, band_sizes and blocking_recall_checks. They never read candidate_pairs.status, so review-queue clicks cannot reach any number.
+Pool and enforcement. Tuning and held-out pairs are drawn only from candidate pairs in the measured period, and the held-out frame excludes the tuning pairs. The tuning draw stays random. The sampling script assigns each held-out pair its band from candidate_pairs.score at draw time and stores it in label_samples.score_band. Freeze enforcement (full rules in phase_wise.md §6.8): config --freeze writes the matcher hash (the config sections plus the matcher source files) to matcher_freeze. The held-out draw refuses to run without a freeze row, refuses if the current hash differs from it, and copies the hash into band_sizes. evaluate.py refuses if the current hash differs from either. This enforces step 4 mechanically, including the window between the freeze and the draw. Metrics read only labeled_pairs, label_samples, band_sizes and blocking_recall_checks. They never read candidate_pairs.status, so review-queue clicks cannot reach any number.
+Disclosure: normalization was iterated on Day 5 by inspecting unlabeled candidate pairs, and no label informed any threshold.
+Limit: a MATCH label's independent signals (industry, footnote, cross-filing name, credit agreement) confirm the borrower, not the tranche, and HPS is typed by lien class only, so a MATCH on a pair with an HPS holding does not establish that the two holdings are the same tranche.
 What is reported (all from blind held-out labels, each with its UNSURE range per §12.3):
 Headline: AUTO-only precision, Wilson interval on the AUTO band sample. This is what ships with zero human review.
 REVIEW band precision, Wilson interval on the REVIEW band sample. This shows how much work the review queue has to do.
@@ -486,7 +491,7 @@ candidate_pairs.status reflects band correctly given score
 4
 Matching — instrument type mismatch
 First lien vs second lien, same maturity
-NO_MATCH regardless of name score
+Blocked out: not a candidate pair, whatever the name score. It is not stored as NO_MATCH
 5
 Matching — band boundary
 score exactly 0.80
@@ -573,8 +578,8 @@ Freeze enforcement
 (a), (b), (c) and (d) are refused with a clear message. (e) removes the freeze row and every held-out artifact, including metric_results, and leaves tuning samples and labels
 26
 Second quarter
-Ingest a non-measured quarter
-Its facilities show their own periodEnd; no pair from it appears in label_samples
+Ingest and normalize a non-measured quarter, then run block.py and match.py
+No blocking_keys row and no candidate_pairs row for it, so no facility and no label_samples row either
 
 
 14. Scaling Plan (ideation only, not built)
@@ -707,16 +712,16 @@ Labeling endpoints (E11, E12 behind ENABLE_LABELING), sample_labels.py --phase t
 
 
 6 (PM)
-Phase 1: label the 100 tuning pairs (~1.5h). Then start provisional compare.py (AUTO pairs only: clustering rules, facility materialization, borrower grouping, divergence)
+Phase 1: label about 40 tuning pairs (diagnostic only; no label moves a threshold). Then start provisional compare.py (AUTO pairs only: clustering rules, facility materialization, borrower grouping, divergence)
 You label — never delegate. A MATCH needs an independent signal, not attributes alone
 7
 Finish provisional compare.py and its tests (18 to 21); build E1 to E8 and E10 from CONTRACT.md; Claude Code starts the core four screens against the real endpoints
 Real facilities visible in the browser, even if provisional
 8 (AM)
-Tune thresholds on the 100 tuning pairs, then freeze the matcher (normalization, blocking, scoring, band edges) and store the matcher hash with python -m pipeline.config --freeze. Just before freezing, run block.py and match.py 3 times so their timings are logged under the frozen config (§12.9)
+Thresholds stay at the defaults; apply any normalization fixes the tuning pairs exposed, then freeze the matcher (normalization, blocking, scoring, band edges) and store the matcher hash with python -m pipeline.config --freeze. Just before freezing, run block.py and match.py 3 times so their timings are logged under the frozen config (§12.9)
 Freeze point — do not revisit after Phase 2 labeling starts
 8 (PM)
-Phase 2: sample_labels.py --phase heldout (stratified by the frozen bands, ~25/band, writes band_sizes); label the held-out 100 (~1.5h); evaluate.py writes metric_results
+Phase 2: sample_labels.py --phase heldout (stratified by the frozen bands: AUTO default 60, every other band min(25, band size); writes band_sizes); label the held-out set (about 100 to 130 labels); evaluate.py writes metric_results
 
 
 9

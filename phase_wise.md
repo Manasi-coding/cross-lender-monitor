@@ -88,7 +88,7 @@ E11, E12, tuning sample draw
 label page
 6 PM
 5 and 6
-You label 100 tuning pairs, start provisional compare.py
+You label about 40 tuning pairs (diagnostic), start provisional compare.py
 nothing
 7
 6 Facilities and API
@@ -96,7 +96,7 @@ Provisional compare.py, E1 to E8 and E10
 core four screens start
 8 AM
 7 Tune and freeze
-Thresholds from tuning labels, freeze, config hash
+Thresholds fixed at defaults, freeze, config hash
 nothing
 8 PM
 7 Held-out
@@ -150,8 +150,9 @@ divergence:
   mild_pts: 1.0
   flagged_pts: 2.0
 sampling:
-  tuning_size: 100
-  heldout_per_band: 25
+  tuning_size: 40                  # diagnostic only: finds normalization bugs, moves no threshold
+  heldout_auto: 60                 # AUTO band sample size, adjustable
+  heldout_per_band: 25             # every other band: min(25, band size)
   seed: 1                          # fixed so draws are reproducible
 evaluation:
   bootstrap_resamples: 1000
@@ -163,7 +164,7 @@ blocking_recall:
 freeze:
   hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py]   # add any helper module they import
 
-All values above are defaults to tune on tuning labels only, before the freeze. The matcher hash covers the normalization, blocking, scoring and bands sections and the contents of the files in freeze.hashed_files (section 6.8). divergence, sampling and evaluation are not part of it.
+All values above are defaults. Thresholds (bands and the two windows) stay at them: no label moves one (SPEC section 12.6). The matcher hash covers the normalization, blocking, scoring and bands sections and the contents of the files in freeze.hashed_files (section 6.8). divergence, sampling and evaluation are not part of it.
 4.2 Env vars (.env.example)
 DATABASE_URL, SEC_USER_AGENT (your name and email, required by SEC), MEASURED_PERIOD_END (ISO date of the measured quarter, set on Day 1, read by both the pipeline and the API), ENABLE_LABELING (default false), PORT. The Node API reads env and the database only. It never reads config.yaml: compare.py has already written the divergence flag into facility_summary.
 4.3 Compose services
@@ -214,6 +215,7 @@ Phase 4: AI matching pipeline (Day 5)
 normalize.py: section 6.1. Writes normalized_holdings (upsert by holding_id, never truncate).
 block.py: section 6.2. Writes blocking_keys and the candidate predicate.
 match.py: section 6.3 and 6.4. Writes candidate_pairs, including NO_MATCH rows.
+Equity and unfunded rows are kept in normalized_holdings with an excluded_reason, not skipped (section 6.1).
 Exact-match baseline: candidates whose normalized names are equal. Report how many pairs the baseline finds versus the scorer.
 Print band counts (AUTO, REVIEW, JUST_BELOW, LOW, NO_MATCH). Eyeball 20 AUTO pairs. If more than 3 are obviously wrong, fix normalization or the digit guard before labeling. Pre-freeze tuning by eye is allowed. It is not labeling.
 Print blocking efficiency as information: all_pairs (from per-BDC counts, the sum of n_i * n_j), candidate_pairs, and pairs avoided %. These are report-only (SPEC section 12.9). block.py, match.py and compare.py also append their run time to docs/run_times.jsonl automatically (section 6.10).
@@ -224,9 +226,9 @@ Morning:
 sample_labels.py --phase tuning: section 6.6.
 E11 and E12 behind ENABLE_LABELING. E11 never returns score, status, band, phase or draw order.
 Claude Code builds the label page (frontend.md section 4.9).
-Afternoon: 4. You label the 100 tuning pairs (about 1.5 hours). A MATCH needs at least one independent signal (industry, footnote, cross-filing name, credit agreement exhibit) on top of name, maturity and spread. Otherwise UNSURE. Principal size is not evidence. 5. If fewer than 10 of your first 50 labels are MATCH, redraw the remaining tuning pairs with --min-score 0.65. The tuning set only has to be useful for choosing thresholds. Only the held-out set has to be unbiased. 6. Start provisional compare.py.
+Afternoon: 4. You label about 40 tuning pairs. They are diagnostic only: they find normalization bugs and no label moves a threshold. A MATCH needs at least one independent signal (industry, footnote, cross-filing name, credit agreement exhibit) on top of name, maturity and spread. Otherwise UNSURE. Principal size is not evidence. 5. The tuning draw stays random, with no --min-score bias. Only the held-out set has to be unbiased. 6. Start provisional compare.py.
 Tests: 15, 24.
-Gate: 100 tuning labels in labeled_pairs with MATCH, NO_MATCH and UNSURE counts noted in your DECISIONS.md draft.
+Gate: about 40 tuning labels in labeled_pairs with MATCH, NO_MATCH and UNSURE counts noted in your DECISIONS.md draft.
 Phase 6: Facilities and API (Day 7)
 Finish compare.py (section 6.5). Provisional means it uses AUTO and CONFIRMED pairs at the current thresholds, and it is re-run on Day 9.
 Build E1 to E8 and E10 exactly as in CONTRACT.md. Delete the temporary dev route. Contract tests per endpoint: shape, sort order, error codes, null rule.
@@ -235,9 +237,9 @@ Tests: 8, 9, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 26.
 Gate: real facilities appear through E4 and E5 in the browser.
 Phase 7: Tune, freeze, held-out, evaluate (Day 8)
 Morning:
-Tune using only the 100 tuning labels: compute precision and recall at candidate auto_min and review_min values (UNSURE shown separately), choose both edges, and review the just_below_min edge. Adjust normalization token lists only on evidence from tuning pairs.
+Thresholds stay at the defaults (0.92, 0.80, 0.65, maturity 3 months, spread 50 bps); no label moves one. Apply any normalization fixes the tuning pairs exposed, on evidence from those pairs only, before the freeze.
 Just before freezing, run block.py and match.py 3 times so their timings are logged under the final config (section 6.10). Then freeze: commit the config and code, run python -m pipeline.config --freeze (it stores the matcher hash in matcher_freeze), and tag git matcher-frozen. From here normalize.py, block.py and match.py refuse to run, and the held-out draw checks the stored hash (section 6.8).
-Afternoon: 3. sample_labels.py --phase heldout: section 6.6. It refuses unless the freeze row exists and the current hash matches it, then writes label_samples and band_sizes with that hash. 4. You label the held-out set (about 1.5 hours), same rule as Phase 5. 5. evaluate.py: section 6.7. It writes metric_results.
+Afternoon: 3. sample_labels.py --phase heldout: section 6.6. It refuses unless the freeze row exists and the current hash matches it, then writes label_samples and band_sizes with that hash. 4. You label the held-out set (about 100 to 130 labels), same rule as Phase 5. 5. evaluate.py: section 6.7. It writes metric_results.
 Tests: 25.
 Gate: a matcher_freeze row exists, a metric_results row exists, heldOutCount equals the number of drawn samples, and the three hashes match (freeze row, band_sizes, current).
 If a matcher bug turns up after the draw: fix it, --unfreeze (which dumps held-out artifacts, including metric_results, to backups/ and deletes them together with the freeze row), re-freeze, redraw, relabel. Never reuse the old held-out set.
@@ -261,7 +263,7 @@ In order: slippage from Days 4 and 5, the blocking recall check if not done, any
 6.1 Normalization (normalize.py)
 Name: fold accents, lowercase, & becomes and, strip punctuation, collapse spaces, drop a leading the, drop legal form tokens and structural tokens from config. Digits stay. If the result is empty, fall back to the cleaned name and log it.
 Instrument type enum: FIRST_LIEN, SECOND_LIEN, REVOLVER, DELAYED_DRAW, UNSECURED, OTHER, from the ordered keyword lists in config (first hit wins, so a first lien delayed draw loan is DELAYED_DRAW). OTHER rows stay in normalized_holdings but never become candidates, because a catch-all cannot satisfy "same instrument type".
-Exclusions: equity rows and unfunded commitments are not written to normalized_holdings (they stay in raw_holdings). Log counts by reason in the data report.
+Exclusions: equity rows and unfunded commitments are kept, not skipped. They are written to normalized_holdings with an excluded_reason (one per row, first match wins: EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL, NULL_FAIR_VALUE) and a NULL fair_value_pct_par. EQUITY is its own instrument type and never a candidate. non_accrual is a flag only; those rows stay in. Log counts by reason in the data report.
 Rate parsing into (reference_rate, spread_bps, floor_bps, pik_bps): handle forms like SOFR + 5.25%, S+525, a floor in parentheses, SONIA, Fixed 11.0%, and Cash 8.5% + PIK 2.5%. A percent value becomes basis points (x100), a bare number after S+ is already basis points. Fixed rate rows get reference_rate = FIXED and NULL spread. Unparseable rows get NULLs and are counted in the data report.
 Maturity: parse MM/DD/YYYY, ISO and month-year (month-year becomes month end).
 Money: strip $ and commas, parentheses mean negative, apply the filer's scale. fair_value_pct_par = 100 * fair_value / principal only when principal is non-null and non-zero, else NULL. Log values outside 0 to 150. Keep the principal currency from the unit. fair_value_pct_par is NULL unless it is USD. Rows matching the filer's configured unfunded-commitment footnote pattern (per filer, in config.yaml; HPS: "unfunded loan commitment") also get NULL and UNFUNDED_COMMITMENT. Detect by text, never by footnote number. Do not use a generic "unfunded" match: ORCIC's "partially unfunded debt or equity commitment" rows sit near par and stay in.
@@ -290,8 +292,8 @@ Facility attributes: reference_rate is the most frequent member value, maturity_
 Write facility_comparisons for every member of every facility (excluded members flagged ZERO_OR_NULL_PRINCIPAL, NULL_FAIR_VALUE, NON_USD_PRINCIPAL or UNFUNDED_COMMITMENT), then facility_summary with lender_count, excluded_count, divergence_pts (max minus min, Decimal) and the flag from config cutoffs.
 Delete all curated rows and insert in FK order inside one transaction. IDs are regenerated each run.
 6.6 Sampling (sample_labels.py)
-Tuning: draw tuning_size random pairs from measured-period candidate_pairs, regardless of UI status, with a seeded RNG. Assign a random permutation to draw_order. --min-score can bias the draw upward, because tuning pairs never count in reported metrics. Refuses once band_sizes exists (section 6.8).
-Held-out: refuse to run unless a matcher_freeze row exists and the current matcher hash equals it, and refuse if band_sizes already has rows (section 6.8). Bands come from candidate_pairs.score and the frozen edges. The sampling frame is all measured-period candidate pairs minus tuning pairs. Draw heldout_per_band pairs per band (all of them if the band is smaller). Write label_samples with phase = HELDOUT and the band, and write band_sizes with the frame sizes (these are the N_b in the weighted formulas), the sample sizes and the matcher hash.
+Tuning: draw tuning_size random pairs from measured-period candidate_pairs, regardless of UI status, with a seeded RNG. Assign a random permutation to draw_order. The draw is random, with no score bias. Refuses once band_sizes exists (section 6.8).
+Held-out: refuse to run unless a matcher_freeze row exists and the current matcher hash equals it, and refuse if band_sizes already has rows (section 6.8). Bands come from candidate_pairs.score and the frozen edges. The sampling frame is all measured-period candidate pairs minus tuning pairs. Draw heldout_auto pairs (default 60, adjustable) from the AUTO band and min(heldout_per_band, band size) pairs (default 25) from every other band, so a band of 25 or fewer is labeled in full. Write label_samples with phase = HELDOUT and the band, and write band_sizes with the frame sizes (these are the N_b in the weighted formulas), the sample sizes and the matcher hash.
 Both phases never draw a pair from another period.
 6.7 Evaluation (evaluate.py)
 Refuse to run unless the current matcher hash equals both matcher_freeze.matcher_config_hash and band_sizes.matcher_config_hash, or if any drawn held-out sample is unlabeled.

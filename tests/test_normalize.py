@@ -9,7 +9,7 @@ import pytest
 
 from pipeline.config import load_config
 from pipeline.normalize import (collapse_repeated_prefix, hps_floor_bps, normalize_instrument, normalize_name,
-                                parse_maturity, parse_rate, strip_industry_prefix)
+                                parse_maturity, parse_rate, strip_alias_clauses, strip_industry_prefix)
 
 CFG = load_config()
 
@@ -51,6 +51,37 @@ def test_ads_industry_prefix_and_repeated_group_are_removed():
     assert strip_industry_prefix("Software Zendesk", None) == "Software Zendesk"
     assert collapse_repeated_prefix("Kaman Kaman Corp") == "Kaman Corp"
     assert collapse_repeated_prefix("Cadence - Southwick, Inc.") == "Cadence - Southwick, Inc."
+
+
+# ------------------------------------------------------------------ dba / f/k/a clauses
+def test_dba_and_fka_clauses_are_removed_from_the_normalized_name_only():
+    assert norm("Atlas Borrower, LLC (dba Anovo)") == norm("Atlas Borrower, LLC") == "atlas borrower"
+    assert norm("Advancion Holdings, LLC (fka Aruba Investments Holdings, LLC)") == "advancion"
+    assert norm("Ellucian Holdings Inc. (f/k/a Sophia, L.P.)") == "ellucian"
+    assert norm("Acme (d/b/a Foo) Inc (formerly known as Bar) (doing business as Baz)") == "acme"
+    assert norm("Acme (DBA Foo)") == "acme"
+
+
+def test_nested_clause_goes_as_one_and_two_clauses_both_go():
+    assert norm("IRI Group Holdings, Inc. (f/k/a Circana Group, L.P. (f/k/a The NPD Group, L.P.))") == "iri group"
+    assert norm("WCG Intermediate Corp. (f/k/a Da Vinci Purchaser Corp.) (dba WCG)") == "wcg"
+
+
+def test_digits_outside_the_clause_stay_and_digits_inside_go():
+    assert norm("Acme Holdings 2, LLC (dba Foo 3)") == "acme 2"
+
+
+def test_other_parentheticals_and_look_alike_words_are_left_alone():
+    assert norm("Thevelia (US) LLC (dba Tricor)") == "thevelia us"
+    assert norm("CT Technologies Intermediate Holdings, Inc. (& Smart Holdings Corp.) (dba Datavant)") == "ct technologies and smart"
+    assert norm("Acme (dbaX)") == "acme dbax"                         # the word must stand alone
+    assert norm("Acme (fka") == "acme fka"                             # an unclosed clause is not removed
+    assert norm("Aspen Dental Management Inc. (ADMI Corp)") == "aspen dental management admi"
+
+
+def test_strip_alias_clauses_keeps_the_raw_text_around_the_clause():
+    starts = CFG["normalization"]["alias_clause_starts"]
+    assert " ".join(strip_alias_clauses("Acme, LLC (dba Foo)", starts).split()) == "Acme, LLC"
 
 
 # ------------------------------------------------------------------ instrument type

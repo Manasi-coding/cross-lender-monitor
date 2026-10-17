@@ -40,12 +40,34 @@ def fold(text: str) -> str:
     return _PUNCT.sub(" ", s).strip()
 
 
+def strip_alias_clauses(raw: str, starts: list[str]) -> str:
+    """Remove each balanced parenthetical clause whose text starts with an alias word (dba, f/k/a, ...). Clauses nest
+    ("(f/k/a X (f/k/a Y))" goes as one). Other parentheticals, an unclosed "(" and the text outside stay."""
+    pat = re.compile(r"^\s*(?:%s)(?![A-Za-z0-9])" % "|".join(re.escape(s) for s in sorted(starts, key=len, reverse=True)), re.I)
+    out, i = [], 0
+    while i < len(raw):
+        if raw[i] == "(":
+            depth, j = 0, i
+            while j < len(raw):
+                depth += (raw[j] == "(") - (raw[j] == ")")
+                j += 1
+                if depth == 0:
+                    break
+            if depth == 0 and pat.match(raw[i + 1:j - 1]):
+                out.append(" ")
+                i = j
+                continue
+        out.append(raw[i])
+        i += 1
+    return "".join(out)
+
+
 def normalize_name(raw: str, cfg: dict) -> tuple[str, bool]:
     """Returns (normalized name, used_fallback). Legal-form and structural tokens are dropped, a leading
-    'the' is dropped, digits stay. An empty result falls back to the cleaned name."""
+    'the' is dropped, digits stay. dba / f/k/a clauses are removed first. An empty result falls back to the cleaned name."""
     n = cfg["normalization"]
     drop = set(n["legal_form_tokens"]) | set(n["structural_tokens"])
-    cleaned = fold(raw or "")
+    cleaned = fold(strip_alias_clauses(raw or "", n.get("alias_clause_starts", [])))
     tokens = cleaned.split()
     if tokens and tokens[0] == "the":
         tokens = tokens[1:]
