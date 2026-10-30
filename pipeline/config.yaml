@@ -105,6 +105,10 @@ filers:
     html:                       # maturity and typing come from the main schedule table
       amounts_after_maturity: 3 # par, cost, fair value
       par_on_rows_without_maturity: false   # equity rows print units, not par
+      relaxed_join_below_strict_share: 0.95   # 2026-03-31 tags principal as a 'shares' fact; if the strict join covers less than this share of table rows, join the rest on (cost, fair value)
+    currency_ladder:            # only for a principal with no unit tag (2026-03-31 tags principal as 'shares'); see pipeline/currency.py
+      rungs: [b]                # validated on 2026-06-30 HPS: (a) symbol n 12 (below 30), (b) reference code n 612 agree 612, (c) period link ADS and ORCIC 847 of 877 (96.6%, below 99%)
+      reference_period: "2026-06-30"
     unfunded_pattern: "unfunded loan commitment"
     non_accrual_pattern: "non-accrual status"   # "Loan was on non-accrual status as of June 30, 2026." (13 rows)
   orcic:

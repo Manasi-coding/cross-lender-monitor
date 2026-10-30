@@ -280,3 +280,43 @@ def test_rebuild_is_one_transaction_a_failure_keeps_the_old_state(migrated_db, m
         with pytest.raises(RuntimeError):
             compare.run(conn, P, CFG)
         assert curated(conn) == old
+
+
+# ------------------------------------------------------------------ the collision test counts marked holdings only
+UNFUNDED = dict(pct=None, excluded_reason="UNFUNDED_COMMITMENT")
+
+
+def test_unmarked_same_bdc_holdings_do_not_make_a_collision(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, h1, u1, u2 = seed_normalized(conn, [h(B1, pct="97"), h(B2, pct="99"), h(B2, **UNFUNDED), h(B2, **UNFUNDED)])
+        pair(conn, a, h1)
+        pair(conn, a, u1)
+        pair(conn, a, u2)
+        res = compare.run(conn, P, CFG)
+        lender, excluded = conn.execute("SELECT lender_count, excluded_count FROM facility_summary").fetchone()
+        rows = conn.execute("SELECT holding_id, fair_value_pct_par, excluded_reason FROM facility_comparisons ORDER BY 1").fetchall()
+        assert conn.execute("SELECT count(*) FROM review_clusters").fetchone()[0] == 0
+        assert members(conn) == [[a, h1, u1, u2]]
+    assert (lender, excluded) == (2, 2) and res["collisions"] == []
+    assert [r[2] for r in rows] == [None, None, "UNFUNDED_COMMITMENT", "UNFUNDED_COMMITMENT"]   # kept with their reason
+
+
+def test_two_marked_holdings_from_one_bdc_still_go_to_review_with_every_member(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, h1, h2, u1 = seed_normalized(conn, [h(B1, pct="97"), h(B2, pct="99"), h(B2, pct="98"), h(B2, **UNFUNDED)])
+        pair(conn, a, h1)
+        pair(conn, a, h2)
+        pair(conn, a, u1)
+        res = compare.run(conn, P, CFG)
+        assert facilities(conn) == [] and conn.execute("SELECT count(*) FROM facility_comparisons").fetchone()[0] == 0
+        got = [r[0] for r in conn.execute("SELECT holding_id FROM review_cluster_members ORDER BY 1").fetchall()]
+    assert got == [a, h1, h2, u1] and len(res["collisions"]) == 1                # the unmarked holding is a member too
+
+
+def test_one_marked_holding_with_only_unmarked_partners_is_not_a_facility(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, u1 = seed_normalized(conn, [h(B1, pct="97"), h(B2, **UNFUNDED)])
+        pair(conn, a, u1)
+        res = compare.run(conn, P, CFG)
+        assert facilities(conn) == [] and conn.execute("SELECT count(*) FROM review_clusters").fetchone()[0] == 0
+    assert len(res["failed"]) == 1

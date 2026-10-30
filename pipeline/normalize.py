@@ -24,6 +24,7 @@ from typing import Any
 
 import psycopg
 
+from pipeline import currency as ccy_ladder
 from pipeline.config import load_config, load_env_file, measured_period_end
 
 # --------------------------------------------------------------------------- names
@@ -248,6 +249,7 @@ def pct_par(fair_value: Decimal | None, principal: Decimal | None) -> Decimal | 
 def excluded_reason(*, type_norm: str, principal: Decimal | None, unfunded: bool, ccy: str | None,
                     fair_value: Decimal | None, cfg: dict) -> str | None:
     """One reason per row, first match in the configured order."""
+    # a missing currency takes the NON_USD_PRINCIPAL slot but is reported as CURRENCY_UNKNOWN, not as a non-USD loan
     checks = {
         "EQUITY_POSITION": type_norm == "EQUITY",
         "ZERO_OR_NULL_PRINCIPAL": principal is None or principal == 0,
@@ -257,7 +259,7 @@ def excluded_reason(*, type_norm: str, principal: Decimal | None, unfunded: bool
     }
     for reason in cfg["normalization"]["excluded_reason_order"]:
         if checks[reason]:
-            return reason
+            return "CURRENCY_UNKNOWN" if reason == "NON_USD_PRINCIPAL" and ccy is None else reason
     return None
 
 
@@ -266,7 +268,9 @@ def matches(pattern: str | None, text: str | None) -> bool:
 
 
 # --------------------------------------------------------------------------- one row
-def normalize_row(raw: dict, filer_key: str, filer_cfg: dict, cfg: dict) -> dict:
+def normalize_row(raw: dict, filer_key: str, filer_cfg: dict, cfg: dict, ccy_override: tuple | None = None) -> dict:
+    """ccy_override is (currency or None, currency_source) from the evidence ladder; it is used only when the row has a
+    principal and no principal unit. Without it such a row has an unknown currency."""
     n = cfg["normalization"]
     name = raw["portfolio_company_raw"] or ""
     if filer_key in n["strip_industry_prefix_filers"]:
@@ -282,7 +286,9 @@ def normalize_row(raw: dict, filer_key: str, filer_cfg: dict, cfg: dict) -> dict
     elif filer_key == "orcic":
         floor = None
     principal, fv = dec(raw["principal_raw"]), dec(raw["fair_value_raw"])
-    ccy = currency(raw["principal_unit_raw"])
+    ccy, ccy_source = currency(raw["principal_unit_raw"]), None
+    if ccy is None and principal is not None:           # no unit tag: the unit decides everywhere else, unchanged
+        ccy, ccy_source = ccy_override if ccy_override else (None, "unknown")
     unfunded = matches(filer_cfg.get("unfunded_pattern"), raw["footnotes_raw"])
     reason = excluded_reason(type_norm=type_norm, principal=principal, unfunded=unfunded, ccy=ccy,
                              fair_value=fv, cfg=cfg)
@@ -291,7 +297,7 @@ def normalize_row(raw: dict, filer_key: str, filer_cfg: dict, cfg: dict) -> dict
         "borrower_normalized": borrower, "industry": raw["industry_raw"], "instrument_type_norm": type_norm,
         "reference_rate": rate["reference_rate"], "spread_bps": rate["spread_bps"], "floor_bps": floor,
         "pik_bps": rate["pik_bps"], "maturity_date": parse_maturity(raw["maturity_date_raw"]),
-        "principal": principal, "principal_currency": ccy, "cost": dec(raw["cost_raw"]), "fair_value": fv,
+        "principal": principal, "principal_currency": ccy, "currency_source": ccy_source, "cost": dec(raw["cost_raw"]), "fair_value": fv,
         "fair_value_pct_par": None if reason else pct_par(fv, principal),
         "footnotes": raw["footnotes_raw"], "source_url": raw["source_url"],
         "non_accrual": matches(filer_cfg.get("non_accrual_pattern"), raw["footnotes_raw"]),
@@ -304,7 +310,7 @@ def normalize_row(raw: dict, filer_key: str, filer_cfg: dict, cfg: dict) -> dict
 COLUMNS = ["holding_id", "bdc_cik", "period_end_date", "borrower_normalized", "industry", "instrument_type_norm",
            "reference_rate", "spread_bps", "floor_bps", "pik_bps", "maturity_date", "principal",
            "principal_currency", "cost", "fair_value", "fair_value_pct_par", "footnotes", "source_url",
-           "non_accrual", "excluded_reason"]
+           "non_accrual", "excluded_reason", "currency_source"]
 
 UPSERT = (
     f"INSERT INTO normalized_holdings ({', '.join(COLUMNS)}) VALUES ({', '.join(['%s'] * len(COLUMNS))}) "
@@ -328,6 +334,35 @@ def load_raw(conn, period: date) -> list[dict]:
     return [dict(zip(cols, r)) for r in cur.fetchall()]
 
 
+def ladder_overrides(conn, period: date, key: str, fcfg: dict, raws: list[dict], rows: list[dict]) -> dict[int, tuple]:
+    """For one filer with a currency_ladder config: {holding_id: (currency or None, source)} for every row of this period
+    that has a principal and no principal unit. The mapping and the links come from the reference period's rows that
+    have a principal unit. Nothing is estimated from the row's own amounts."""
+    lc = fcfg["currency_ladder"]
+    ref_period, rungs = date.fromisoformat(lc["reference_period"]), lc["rungs"]
+    need = [r for r in raws if r["cik"] == fcfg["cik"] and r["principal_raw"] is not None and not r["principal_unit_raw"]]
+    if not need or period == ref_period:
+        return {}
+    ref = conn.execute(
+        "SELECT h.holding_id, h.interest_rate_raw, h.principal_unit_raw, h.instrument_type_raw, n.borrower_normalized, n.maturity_date "
+        "FROM raw_holdings h JOIN raw_filings f USING (filing_id) JOIN normalized_holdings n USING (holding_id) "
+        "WHERE f.cik = %s AND f.period_end_date = %s", (fcfg["cik"], ref_period)).fetchall()
+    code_map = ccy_ladder.build_code_map([(ccy_ladder.rate_code(r[1]), currency(r[2])) for r in ref if r[2]])
+    ref_unit = {r[0]: r[2] for r in ref}
+    links: dict[int, int] = {}
+    if "c" in rungs:
+        mine = [r for r in rows if r["_filer"] == key]
+        links = ccy_ladder.unique_links(
+            [(r["holding_id"], ccy_ladder.link_key(r["borrower_normalized"], r["_raw_type"], r["maturity_date"], ccy_ladder.rate_code(r["_raw_rate"]))) for r in mine],
+            [(r[0], ccy_ladder.link_key(r[4], r[3], r[5], ccy_ladder.rate_code(r[1]))) for r in ref])
+    out = {}
+    for r in need:
+        linked = ref_unit.get(links.get(r["holding_id"]))
+        out[r["holding_id"]] = ccy_ladder.resolve(symbol=None, code=ccy_ladder.rate_code(r["interest_rate_raw"]), code_map=code_map,
+                                                  linked_unit=linked, rungs=rungs)
+    return out
+
+
 def run(conn, period: date, cfg: dict | None = None, verbose: bool = True) -> list[dict]:
     cfg = cfg or load_config()
     refuse_if_frozen(conn, "normalize")
@@ -339,6 +374,15 @@ def run(conn, period: date, cfg: dict | None = None, verbose: bool = True) -> li
         row = normalize_row(raw, key, fcfg, cfg)
         row["_filer"] = key
         out.append(row)
+    # the currency evidence ladder, for rows that have a principal and no principal unit (HPS 2026-03-31 only)
+    for key, fcfg in cfg["filers"].items():
+        if "currency_ladder" not in fcfg:
+            continue
+        over = ladder_overrides(conn, period, key, fcfg, raws, out)
+        for i, raw in enumerate(raws):
+            if raw["holding_id"] in over:
+                out[i] = normalize_row(raw, key, fcfg, cfg, ccy_override=over[raw["holding_id"]])
+                out[i]["_filer"] = key
     with conn.transaction():
         with conn.cursor() as cur:
             cur.executemany(UPSERT, [tuple(r[c] for c in COLUMNS) for r in out])
@@ -385,6 +429,10 @@ def report(rows: list[dict]) -> None:
         print(f"-- {f}: rows {len(fr)}, non_accrual {sum(1 for r in fr if r['non_accrual'])}, "
               f"with a % of par {sum(1 for r in fr if r['fair_value_pct_par'] is not None)}; "
               + ", ".join(f"{k or 'NONE'} {v}" for k, v in sorted(c.items(), key=lambda x: (x[0] is None, str(x[0])))))
+    print("\n== currency source (rows with a principal and no principal unit), per filer")
+    for f in filers:
+        c = Counter(r["currency_source"] for r in rows if r["_filer"] == f and r["currency_source"])
+        print(f"-- {f}: " + (", ".join(f"{k} {v}" for k, v in sorted(c.items())) or "none: every principal has a unit"))
     out_of_range = [r for r in rows if r["fair_value_pct_par"] is not None and not (0 <= r["fair_value_pct_par"] <= 150)]
     print(f"\nfair_value_pct_par outside 0 to 150: {len(out_of_range)} rows")
     for r in out_of_range:

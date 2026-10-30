@@ -43,6 +43,7 @@ class HtmlRow:
     tokens: list[str] = field(default_factory=list)
     element: object = None       # the <tr> this row came from (used only to build test excerpts)
     header_elements: tuple = ()  # the affiliation, section and industry <tr> in force for the row
+    principal_symbol: str | None = None   # the currency cell printed right before the principal amount, as printed
 
 
 def _ln(e) -> str:
@@ -96,7 +97,8 @@ def parse_main_schedule(path: Path, amounts_after_maturity: int,
         for tr in table.iter():
             if _ln(tr) != "tr":
                 continue
-            toks = [c for c in _row_cells(tr) if c and c not in CURRENCY_CELLS and c != "%"]
+            cells = [c for c in _row_cells(tr) if c]
+            toks = [c for c in cells if c not in CURRENCY_CELLS and c != "%"]
             if not toks:
                 continue
             first = toks[0]
@@ -126,6 +128,14 @@ def parse_main_schedule(path: Path, amounts_after_maturity: int,
             principal = amts[-need] if (n >= need and has_par) else None
             cost = amts[-2] if n >= 2 else None
             fv = amts[-1] if n >= 1 else None
+            symbol = None
+            if principal is not None or (n >= need and has_par):
+                # the currency cell printed right before the principal amount cell, if any
+                m_ci = next((i for i, x in enumerate(cells) if i > 0 and DATE_RE.match(x)), None)
+                amt_ci = [i for i, x in enumerate(cells) if i > (m_ci if m_ci is not None else 0)
+                          and (_num(x) is not None or x in DASHES)]
+                if len(amt_ci) >= need and amt_ci[-need] > 0 and cells[amt_ci[-need] - 1] in CURRENCY_CELLS:
+                    symbol = cells[amt_ci[-need] - 1]
             rate_start = (toks.index(inst) + 1) if inst is not None else 1
             rate_tokens = toks[rate_start:mat_i] if mat_i is not None else []
             rows.append(HtmlRow(
@@ -134,7 +144,8 @@ def parse_main_schedule(path: Path, amounts_after_maturity: int,
                 maturity=toks[mat_i] if mat_i is not None else None, instrument_cell=inst,
                 rate_tokens=rate_tokens, principal=principal, cost=cost, fair_value=fv, amount_cells=n,
                 tokens=toks, element=tr,
-                header_elements=(ctx_tr["affil"], ctx_tr["section"], ctx_tr["industry"])))
+                header_elements=(ctx_tr["affil"], ctx_tr["section"], ctx_tr["industry"]),
+                principal_symbol=symbol))
     return rows
 
 

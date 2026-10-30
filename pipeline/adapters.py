@@ -10,6 +10,7 @@ Tag maps and footnote patterns come from the filers section of config.yaml.
 """
 from __future__ import annotations
 
+import logging
 import re
 from abc import ABC, abstractmethod
 from collections import Counter, defaultdict
@@ -27,6 +28,7 @@ from pipeline.ixbrl import (IDENTIFIER_AXIS, NS_IX, assemble_investments, parse_
                             split_pipe_identifier)
 
 RawRow = tuple
+log = logging.getLogger("pipeline.adapters")
 
 
 @dataclass
@@ -365,13 +367,63 @@ class HtmlAssistedAdapter(FilerAdapter):
                     self.stats["multi_resolved_by_order_unexplained"] += 1
             used.add(cands[0])
             pairs.append((hr, schedule[cands[0]]))
+        threshold = h.get("relaxed_join_below_strict_share")
+        if threshold is not None and with_amounts and len(pairs) / len(with_amounts) < float(threshold):
+            self._join_without_principal(schedule, with_amounts, pairs, used)
+        pairs.sort(key=lambda p: p[0].order)       # table order; unchanged when only the strict pass ran
         self.stats["matched"] = len(pairs)
+        self.stats["html_rows_unjoined"] = len(with_amounts) - len(pairs)
         dropped = [x for i, x in enumerate(schedule) if i not in used]
         self.stats["xbrl_schedule_rows"] = len(schedule)
         self.stats["xbrl_dropped_no_main_schedule_row"] = len(dropped)
         self.stats["xbrl_dropped_funded"] = sum(1 for x in dropped if x["principal"] not in (None, 0))
         self.stats["xbrl_dropped_fair_value_sum"] = int(sum((x["fair_value"] or Decimal(0)) for x in dropped))
         return pairs, dropped, notes
+
+    def _join_without_principal(self, schedule, with_amounts, pairs, used) -> None:
+        """Second pass, used only when the strict (principal, cost, fair value) pass joined less than the configured
+        share of the table rows, which means the filing tags principal differently (HPS 2026-03-31 tags it as a
+        'shares' fact). It joins the table rows still unmatched to the XBRL rows that have no principal fact, on
+        (cost, fair value), both in dollars with a dash read as empty. When several rows share the key it narrows by
+        exact printed name. A row that is still ambiguous is left unjoined and logged, never guessed. The principal
+        is the table cell (thousands as printed, times 1000) and has no unit: the table prints no currency."""
+        self.stats["relaxed_join_applied"] = 1
+        todo = [hr for hr in with_amounts if hr.order not in {p[0].order for p in pairs}]
+        pool = [i for i, x in enumerate(schedule) if i not in used and x["principal"] is None]
+        by_key: dict[tuple, list[int]] = defaultdict(list)
+        for i in pool:
+            by_key[_key(None, schedule[i]["cost"], schedule[i]["fair_value"])[1:]].append(i)
+        h_key = lambda hr: _key(None, hr.cost, hr.fair_value, 1000)[1:]
+        h_count = Counter(h_key(hr) for hr in todo)
+        h_name_count = Counter((h_key(hr), _alnum(hr.name)) for hr in todo)
+        for hr in todo:
+            key = h_key(hr)
+            cands = [i for i in by_key.get(key, []) if i not in used]
+            pick = None
+            if len(cands) == 1 and h_count[key] == 1:
+                pick = cands[0]
+            elif cands:
+                named = [i for i in cands if _alnum(schedule[i]["raw_name"]) == _alnum(hr.name)]
+                if len(named) == 1 and h_name_count[(key, _alnum(hr.name))] == 1:
+                    pick = named[0]
+                    self.stats["relaxed_resolved_by_name"] += 1
+            if pick is None:
+                if cands:
+                    self.stats["relaxed_ambiguous"] += 1
+                    log.warning("ambiguous join, left unjoined: %r cost %s fair value %s has %d xbrl candidates and %d table rows",
+                                hr.name, hr.cost, hr.fair_value, len(cands), h_count[key])
+                else:
+                    self.stats["relaxed_no_candidate"] += 1
+                    log.warning("no xbrl row for table row, left unjoined: %r cost %s fair value %s", hr.name, hr.cost, hr.fair_value)
+                continue
+            used.add(pick)
+            x = dict(schedule[pick])
+            x["principal"] = None if hr.principal is None else hr.principal * 1000
+            x["principal_unit"] = None
+            pairs.append((hr, x))
+            self.stats["relaxed_joined"] += 1
+            if hr.principal is not None:
+                self.stats["principal_from_table_cell"] += 1
 
     def parse(self, filing: Filing) -> list[RawRow]:
         pairs, _dropped, notes = self.match(filing)

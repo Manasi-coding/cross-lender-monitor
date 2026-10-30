@@ -53,7 +53,13 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
   let app: ReturnType<typeof createApp>;
   let h: number[]; // holding ids
 
-  async function addHolding(filing: number, raw: string, norm: string, cik: string, extra: { industry?: string; footnotes?: string } = {}) {
+  async function addHolding(
+    filing: number,
+    raw: string,
+    norm: string,
+    cik: string,
+    extra: { industry?: string; footnotes?: string; period?: string } = {},
+  ) {
     const r = await pool.query(
       `INSERT INTO raw_holdings (filing_id, portfolio_company_raw, source_url) VALUES ($1, $2, 'https://example.test') RETURNING holding_id`,
       [filing, raw],
@@ -62,8 +68,8 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
     await pool.query(
       `INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, industry, instrument_type_norm,
                                         spread_bps, maturity_date, footnotes, source_url)
-       VALUES ($1, $2, '2026-06-30', $3, $4, 'FIRST_LIEN', 475.00, '2030-01-31', $5, 'https://example.test')`,
-      [id, cik, norm, extra.industry ?? null, extra.footnotes ?? null],
+       VALUES ($1, $2, $6, $3, $4, 'FIRST_LIEN', 475.00, '2030-01-31', $5, 'https://example.test')`,
+      [id, cik, norm, extra.industry ?? null, extra.footnotes ?? null, extra.period ?? "2026-06-30"],
     );
     return id;
   }
@@ -149,6 +155,20 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
     // holdings 2 and 3 share the normalized name "acme"; 0 and 1 are the pair itself. "Acme Holdings, LLC" is also holding 3's name.
     expect(res.body.holdingA.crossFilingNames).toEqual(["Acme Holdings, LLC", "Acme Intermediate, Inc. (dba Acme)"]);
     expect(res.body.holdingB.crossFilingNames).toEqual(res.body.holdingA.crossFilingNames);
+  });
+
+  it("crossFilingNames ignores holdings of another period, even with the same normalized name", async () => {
+    const q1Filing = (
+      await pool.query(
+        `INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, accession_number, source_url)
+         VALUES ('0000000003', 'BDC 3', '10-Q', '2026-03-31', '2026-05-11', 'acc-q1', 'https://example.test') RETURNING filing_id`,
+      )
+    ).rows[0].filing_id;
+    await addHolding(q1Filing, "Acme Prior Quarter Name", "acme", "0000000003", { period: "2026-03-31" });
+    await sample("TUNING", h[0], h[1], 1);
+    const res = await request(app).get("/api/label/next");
+    expect(res.body.holdingA.crossFilingNames).toEqual(["Acme Holdings, LLC", "Acme Intermediate, Inc. (dba Acme)"]);
+    expect(JSON.stringify(res.body)).not.toContain("Prior Quarter");
   });
 
   it("E11 never sends score, status, band, phase or draw order, in any key or value position", async () => {

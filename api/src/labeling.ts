@@ -37,16 +37,18 @@ async function holding(pool: Pool, id: number, pairIds: number[]) {
     [id],
   );
   const h = rows[0];
-  // Other holdings, in any ingested filing, with exactly this normalized borrower name. Exact equality, no scoring.
+  // Other holdings, in any ingested filing of the same period as the pair, with exactly this normalized borrower name.
+  // Exact equality, no scoring. Rows of another quarter never appear as evidence.
   const names = await pool.query<{ name: string }>(
     `SELECT DISTINCT r.portfolio_company_raw AS name
        FROM normalized_holdings n
        JOIN raw_holdings r ON r.holding_id = n.holding_id
       WHERE n.borrower_normalized = $1
         AND n.holding_id <> ALL($2::int[])
+        AND n.period_end_date = (SELECT period_end_date FROM normalized_holdings WHERE holding_id = $3)
         AND r.portfolio_company_raw IS NOT NULL
       ORDER BY 1`,
-    [h.borrowerNormalized, pairIds],
+    [h.borrowerNormalized, pairIds, id],
   );
   return {
     holdingId: id,

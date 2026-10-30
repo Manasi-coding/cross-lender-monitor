@@ -11,7 +11,10 @@ Steps:
 1. Edges are AUTO and CONFIRMED pairs between different BDCs. REJECTED pairs are cannot-link constraints.
    Edges go in the order CONFIRMED first, then descending score, then ascending holding ids. An edge whose union
    would put a cannot-link pair into one component is skipped and logged. REVIEW and NO_MATCH never form edges.
-2. A component of 2 or more holdings is a cluster. A cluster with two holdings from one BDC goes to review_clusters.
+2. A component of 2 or more holdings is a cluster. A cluster with two MARKED holdings (non-null fair_value_pct_par)
+   from one BDC goes to review_clusters, with all its holdings as members. Holdings with an excluded_reason have no
+   mark: they do not count for this test, and they stay in the cluster, in facility_comparisons with their reason,
+   and in excluded_count.
 3. A cluster becomes a facility only if at least 2 holdings have a non-null fair_value_pct_par.
 4. A cluster is named by its most frequent borrower_normalized (ties: ascending codepoint order). Facilities are
    grouped into borrowers by exact equality of that name within the period.
@@ -128,7 +131,8 @@ def run(conn, period: date, cfg: dict | None = None) -> dict:
 
     collisions, failed, facilities = [], [], []
     for members in clusters:
-        if len({bdc[m] for m in members}) < len(members):
+        marked = [m for m in members if rows[m][9] is not None]       # the collision test counts marked holdings only
+        if len({bdc[m] for m in marked}) < len(marked):
             collisions.append(members)
             log.append(f"review cluster (same BDC collision): holdings {members}")
             continue

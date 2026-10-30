@@ -7,6 +7,7 @@ A rerun is a no-op. Per-filer parsing lives in pipeline/adapters.py.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import re
 import sys
@@ -284,6 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     load_env_file()
+    logging.basicConfig(level=logging.WARNING, format="      %(message)s")   # adapter warnings: ambiguous or unjoined rows
     period_end = measured_period_end()
     url = os.environ.get("DATABASE_URL", "").strip()
     if not url:

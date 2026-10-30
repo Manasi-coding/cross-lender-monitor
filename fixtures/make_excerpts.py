@@ -200,6 +200,50 @@ def make_html_assisted(key: str, rules: list, drop_rules: list, out_name: str, n
     build(src, root, OUT / out_name, period.isoformat(), idents, trs, header_tr, note)
 
 
+def make_hps_q1(out_name: str, note: str) -> None:
+    """HPS 2026-03-31: principal is tagged as a 'shares' fact, so the strict join fails and the second pass joins on
+    (cost, fair value). The excerpt keeps one strictly joined row, rows the second pass joins, two table rows that share
+    one (cost, fair value) key with two XBRL rows (ambiguous) and table rows with no XBRL row (no candidate)."""
+    cfg = load_config()["filers"]["hps"]
+    period = date(2026, 3, 31)
+    src = RAW / f"{cfg['fixture_label']}_10q_{period.isoformat()}.htm"
+    filing = Filing(cfg["fixture_label"], cfg["cik"], "x", period, src, "u", "a")
+    adapter = make_adapter("hps", cfg)
+    pairs, _dropped, _notes = adapter.match(filing)
+    _c, _f, _t, schedule = adapter.load_xbrl(filing, adapter.identifier_parser())
+    h = cfg["html"]
+    root = etree.parse(str(src), etree.XMLParser(huge_tree=True, recover=True)).getroot()
+    mine = [r for r in parse_main_schedule(src, h["amounts_after_maturity"], h["par_on_rows_without_maturity"], root=root) if r.amount_cells > 0]
+    joined = {hr.order for hr, _x in pairs}
+    strict = [(hr, x) for hr, x in pairs if x["principal_unit"] is not None][:1]
+    relaxed = [c[1] for c in pick([(hr.name, (hr, x)) for hr, x in pairs if x["principal_unit"] is None and x["principal"] is not None],
+                                  [("Arcfield Acquisition Corp", 2, None), ("Cadence - Southwick", 2, None), ("Titan BW Borrower", 1, None),
+                                   ("Netrisk Group Luxco", 1, None)])]
+    key = lambda cost, fv: (int((cost or 0)), int((fv or 0)))
+    loose = [hr for hr in mine if hr.order not in joined]
+    ambiguous = [hr for hr in loose if any(x["principal"] is None and key(x["cost"], x["fair_value"]) == key((hr.cost or 0) * 1000, (hr.fair_value or 0) * 1000) for x in schedule)]
+    nocand = [hr for hr in loose if hr not in ambiguous]
+    amb_rows = [c[1] for c in pick([(hr.name, hr) for hr in ambiguous], [("Kpler Finance", 2, None)])]
+    no_rows = [c[1] for c in pick([(hr.name, hr) for hr in nocand], [("Sedgwick Claims Management", 1, None), ("Einstein Parent", 1, None)])]
+    idents = {x["identifier"] for _hr, x in strict} | {x["identifier"] for _hr, x in relaxed}
+    for hr in amb_rows:
+        idents |= {x["identifier"] for x in schedule if x["principal"] is None and key(x["cost"], x["fair_value"]) == key((hr.cost or 0) * 1000, (hr.fair_value or 0) * 1000)}
+    table_orders = sorted({hr.order for hr, _x in strict} | {hr.order for hr, _x in relaxed} | {hr.order for hr in amb_rows} | {hr.order for hr in no_rows})
+    assert 0 < len(table_orders) <= MAX_ROWS, len(table_orders)
+    own = {r.order: r for r in parse_main_schedule(src, h["amounts_after_maturity"], h["par_on_rows_without_maturity"], root=root) if r.amount_cells > 0}
+    trs = []
+    for o in table_orders:
+        row = next(r for r in own.values() if r.order == o)
+        trs.append(row.element)
+        _HEADERS[id(row.element)] = row.header_elements
+
+    def first_text(tr):
+        return next((c for c in (" ".join("".join(td.itertext()).split()) for td in tr if ln(td) in ("td", "th")) if c), "")
+
+    header_tr = next(tr for tr in main_schedule_tables(root)[0].iter() if ln(tr) == "tr" and first_text(tr).startswith("Company"))
+    build(src, root, OUT / out_name, period.isoformat(), idents, trs, header_tr, note)
+
+
 def main() -> None:
     make_ads("ads", date(2026, 6, 30), [
         ("Corpuls Heartbeat", 2, None), ("North American Rail Solutions", 6, None), ("IQN Holding", 2, None),
@@ -224,6 +268,10 @@ def main() -> None:
         ("LSI Financing LLC", 1, None), ("Notorious Purchaser II", 1, None), ("Coupa Holdings", 1, None),
     ], [("LSI Financing LLC", 1, None)], "orcic_excerpt.htm",
         "Real excerpt of the Blue Owl Credit Income Corp. 10-Q, period end 2026-06-30 (0001812554-26-000047).")
+    if (RAW / "hps_corporate_lending_10q_2026-03-31.htm").exists():
+        make_hps_q1("hps_q1_excerpt.htm", "Real excerpt of the HPS Corporate Lending Fund 10-Q, period end 2026-03-31 (0001628280-26-033248).")
+    else:
+        print("fixtures/raw/hps_corporate_lending_10q_2026-03-31.htm not found: HPS second period excerpt skipped")
     q1 = RAW / "ads_10q_2026-03-31.htm"
     if q1.exists():
         make_ads("ads", date(2026, 3, 31), [
