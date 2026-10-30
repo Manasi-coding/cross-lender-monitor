@@ -55,7 +55,8 @@ blocking_recall:
   seed: 1
 freeze:
   hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py, pipeline/currency.py]   # add any helper module they import (normalize.py imports currency.py)
-# Per-filer adapters (phase_wise.md Phase 3). Not part of the matcher hash.
+# Per-filer adapters (phase_wise.md Phase 3). Part of the matcher hash since Day 8: normalize.py reads the footnote
+# patterns and the currency ladder from here, so a change here changes what is normalized.
 # Tag names were verified on the 2026-06-30 filings (docs/day1_notes.md), not assumed.
 # unfunded_pattern and non_accrual_pattern are case-insensitive substrings matched against the
 # filer's own footnote text. null means the evidence shows no such footnote for that filer.

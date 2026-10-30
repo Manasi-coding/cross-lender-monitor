@@ -15,8 +15,14 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
     const [filings, facilities, pending, split, exposure] = await Promise.all([
       pool.query(`SELECT COUNT(DISTINCT cik)::int AS "bdcCount", COUNT(DISTINCT period_end_date)::int AS "quarterCount" FROM raw_filings`),
       pool.query(`SELECT COUNT(*)::int AS n FROM canonical_facilities`),
+      // only the measured period: pairs from another quarter that were matched out of time are not part of the review queue
       pool.query(
-        `SELECT ((SELECT COUNT(*) FROM candidate_pairs WHERE status = 'REVIEW') + (SELECT COUNT(*) FROM review_clusters))::int AS n`,
+        `SELECT ((SELECT COUNT(*) FROM candidate_pairs c
+                    JOIN normalized_holdings a ON a.holding_id = c.holding_id_a
+                    JOIN normalized_holdings b ON b.holding_id = c.holding_id_b
+                   WHERE c.status = 'REVIEW' AND a.period_end_date = $1 AND b.period_end_date = $1)
+                + (SELECT COUNT(*) FROM review_clusters WHERE period_end_date = $1))::int AS n`,
+        [measuredPeriodEnd],
       ),
       pool.query(`SELECT divergence_flag AS flag, COUNT(*)::int AS n FROM facility_summary GROUP BY divergence_flag`),
       pool.query(`SELECT COALESCE(SUM(exposure_usd) FILTER (WHERE divergence_flag = 'FLAGGED'), 0) AS total FROM facility_summary`),

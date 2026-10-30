@@ -2,10 +2,11 @@
 
 Tunables come from config.yaml, the measured quarter from env.
 
-The matcher hash is sha256 over a canonical JSON document with two parts: the normalization, blocking, scoring and
-bands sections of config.yaml, and the sha256 of each file in freeze.hashed_files with CRLF turned into LF (so a Windows
-checkout and CI agree). Keys are sorted and files are taken in sorted path order, so the list order does not matter.
-Anything else (filers, sampling, divergence, evidence, sec) is not part of it.
+The matcher hash is sha256 over a canonical JSON document with two parts: the normalization, blocking, scoring,
+bands and filers sections of config.yaml, and the sha256 of each file in freeze.hashed_files with CRLF turned into LF (so
+a Windows checkout and CI agree). Keys are sorted and files are taken in sorted path order, so the list order does not
+matter. filers is included because normalize.py reads it (unfunded and non-accrual patterns, the currency ladder). Anything
+else (sampling, divergence, evidence, sec, currency, freeze) is not part of it.
 
 Commands:
   python -m pipeline.config --hash       print the current hash (read only)
@@ -27,7 +28,7 @@ import yaml
 CONFIG_PATH = Path(__file__).with_name("config.yaml")
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MATCHER_SECTIONS = ("normalization", "blocking", "scoring", "bands")
+MATCHER_SECTIONS = ("normalization", "blocking", "scoring", "bands", "filers")
 
 
 def load_config(path: Path = CONFIG_PATH) -> dict:

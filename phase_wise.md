@@ -169,7 +169,7 @@ blocking_recall:
 freeze:
   hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py, pipeline/currency.py]   # add any helper module they import (normalize.py imports currency.py; done on Day 8)
 
-All values above are defaults. Thresholds (bands and the two windows) stay at them: no label moves one (SPEC section 12.6). The matcher hash covers the normalization, blocking, scoring and bands sections and the contents of the files in freeze.hashed_files (section 6.8). divergence, sampling and evaluation are not part of it.
+All values above are defaults. Thresholds (bands and the two windows) stay at them: no label moves one (SPEC section 12.6). The matcher hash covers the normalization, blocking, scoring, bands and filers sections and the contents of the files in freeze.hashed_files (section 6.8). divergence, sampling, evidence and evaluation are not part of it.
 4.2 Env vars (.env.example)
 DATABASE_URL, SEC_USER_AGENT (your name and email, required by SEC), MEASURED_PERIOD_END (ISO date of the measured quarter, set on Day 1, read by both the pipeline and the API), ENABLE_LABELING (default false), PORT. The Node API reads env and the database only. It never reads config.yaml: compare.py has already written the divergence flag into facility_summary.
 4.3 Compose services
@@ -316,7 +316,7 @@ Weighted figures use sum(m_b * N_b) formulas from SPEC section 12.6 and a bootst
 Write the E9 label-derived payload to metric_results with the config hash. unsureCount and heldOutCount come from the held-out labels. Fields not yet computable stay null.
 6.8 Freeze enforcement
 The freeze is a recorded step, not a convention.
-The hash. config.py computes the matcher hash: sha256 over the canonical JSON of the normalization, blocking, scoring and bands config sections, plus the sha256 of each file listed in freeze.hashed_files (default normalize.py, block.py, match.py). Keep matcher logic inside those files, or add any helper they import to the list. The column name matcher_config_hash is kept for brevity, but the hash also covers those source files. Hash file contents with CRLF turned into LF, so a Windows checkout and CI give the same hash. normalize.py imports pipeline/currency.py, so list it in freeze.hashed_files. compare.py, link_history.py and the evidence: section are not hashed.
+The hash. config.py computes the matcher hash: sha256 over the canonical JSON of the normalization, blocking, scoring, bands and filers config sections (filers because normalize.py reads the footnote patterns and the currency ladder from it), plus the sha256 of each file listed in freeze.hashed_files (default normalize.py, block.py, match.py). Keep matcher logic inside those files, or add any helper they import to the list. The column name matcher_config_hash is kept for brevity, but the hash also covers those source files. Hash file contents with CRLF turned into LF, so a Windows checkout and CI give the same hash. normalize.py imports pipeline/currency.py, so list it in freeze.hashed_files. compare.py, link_history.py and the evidence: section are not hashed.
 Commands.
 python -m pipeline.config --hash: prints the current hash. Read-only.
 python -m pipeline.config --freeze: refuses if a matcher_freeze row already exists. Otherwise inserts the single row (hash, git sha when available).

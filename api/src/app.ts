@@ -31,7 +31,7 @@ export function createApp(opts: AppOptions): express.Express {
 
   // E1 to E5 (facilities.ts), E6 to E8 (review.ts)
   registerFacilities(app, pool, opts.measuredPeriodEnd);
-  registerReview(app, pool);
+  registerReview(app, pool, opts.measuredPeriodEnd);
 
   // E9 is Day 9 work (the held-out evaluation and the live fields).
   app.get("/api/metrics", notImplemented("E9"));

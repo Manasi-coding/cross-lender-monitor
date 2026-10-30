@@ -30,3 +30,11 @@
 {"module": "compare", "seconds": 0.151, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-17T14:23:16+00:00"}
 {"module": "compare", "seconds": 0.243, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-17T14:34:53+00:00"}
 {"module": "compare", "seconds": 1.284, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T09:31:07+00:00"}
+{"module": "block", "seconds": 0.344, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:14+00:00"}
+{"module": "match", "seconds": 0.117, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:15+00:00"}
+{"module": "block", "seconds": 0.303, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:19+00:00"}
+{"module": "match", "seconds": 0.17, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:21+00:00"}
+{"module": "block", "seconds": 0.298, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:25+00:00"}
+{"module": "match", "seconds": 0.111, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:26+00:00"}
+{"module": "block", "seconds": 0.283, "period": "2026-03-31", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:47:02+00:00"}
+{"module": "match", "seconds": 0.146, "period": "2026-03-31", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:47:02+00:00"}

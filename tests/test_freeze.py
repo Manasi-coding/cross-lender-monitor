@@ -69,7 +69,8 @@ def test_hash_changes_with_each_hashed_config_section_and_not_with_the_others(tm
     root = make_root(tmp_path)
     base = matcher_hash(cfg_for(), root)
     for path, value in ((("bands", "auto_min"), 0.93), (("blocking", "spread_window_bps"), 51), (("scoring", "scorer"), "ratio"),
-                        (("normalization", "legal_form_tokens"), ["llc"]), (("normalization", "excluded_reason_order"), ["EQUITY_POSITION"])):
+                        (("normalization", "legal_form_tokens"), ["llc"]), (("normalization", "excluded_reason_order"), ["EQUITY_POSITION"]),
+                        (("filers", "hps"), {"unfunded_pattern": "something else"})):
         c = cfg_for()
         c[path[0]][path[1]] = value
         assert matcher_hash(c, root) != base, path
@@ -77,9 +78,15 @@ def test_hash_changes_with_each_hashed_config_section_and_not_with_the_others(tm
         c = cfg_for()
         c[path[0]][path[1]] = value
         assert matcher_hash(c, root) == base, path                                          # not part of the matcher
-    c = cfg_for()
-    c["filers"]["hps"]["unfunded_pattern"] = "something else"
-    assert matcher_hash(c, root) == base                                                    # filers is not hashed (see DECISIONS.md)
+    for sub in (("filers", "hps", "unfunded_pattern", "something else"), ("filers", "hps", "currency_ladder", {"rungs": ["a", "b", "c"], "reference_period": "2026-06-30"}),
+                ("filers", "ads", "non_accrual_pattern", "x"), ("filers", "orcic", "cik", "0000000000")):
+        c = cfg_for()
+        c[sub[0]][sub[1]][sub[2]] = sub[3]
+        assert matcher_hash(c, root) != base, sub                                           # anything inside filers changes the hash
+    for path, value in ((("freeze", "unrelated"), 1), (("currency", "principal_currency_required"), "EUR"), (("evidence", "floor_differs_bps"), 99)):
+        c = cfg_for()
+        c.setdefault(path[0], {})[path[1]] = value
+        assert matcher_hash(c, root) == base, path                                          # still not part of the matcher
 
 
 def test_hash_refuses_a_missing_file_or_an_empty_list(tmp_path):
@@ -93,7 +100,7 @@ def test_hash_refuses_a_missing_file_or_an_empty_list(tmp_path):
 def test_the_repo_hash_covers_the_four_files_including_currency_and_is_stable():
     parts = matcher_hash_parts(CFG, REPO)
     assert list(parts["files"]) == ["pipeline/block.py", "pipeline/currency.py", "pipeline/match.py", "pipeline/normalize.py"]
-    assert list(parts["config"]) == ["normalization", "blocking", "scoring", "bands"]
+    assert list(parts["config"]) == ["normalization", "blocking", "scoring", "bands", "filers"]
     assert matcher_hash(CFG, REPO) == matcher_hash(load_config(), REPO)
     for unhashed in ("pipeline/compare.py", "pipeline/link_history.py"):
         assert unhashed not in parts["files"]                                               # compare.py runs after the freeze

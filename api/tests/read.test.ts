@@ -60,7 +60,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     }
   }
 
-  async function holding(bdc: number, raw: string, o: { norm?: string; spread?: string | null; pct?: string | null; principal?: string | null; maturity?: string | null } = {}) {
+  async function holding(bdc: number, raw: string, o: { norm?: string; spread?: string | null; pct?: string | null; principal?: string | null; maturity?: string | null; period?: string } = {}) {
     const r = await pool.query(
       `INSERT INTO raw_holdings (filing_id, portfolio_company_raw, source_url) VALUES ($1, $2, $3) RETURNING holding_id`,
       [filings[bdc], raw, `https://example.test/h/${++hSeq}`],
@@ -70,7 +70,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
       `INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, instrument_type_norm, spread_bps, maturity_date,
                                         principal, fair_value_pct_par, source_url)
        VALUES ($1, $2, $3, $4, 'FIRST_LIEN', $5, $6, $7, $8, $9)`,
-      [id, BDCS[bdc].cik, P2, o.norm ?? raw.toLowerCase(), o.spread ?? null, o.maturity ?? "2030-01-31", o.principal ?? "1000000", o.pct ?? null, `https://example.test/h/${hSeq}`],
+      [id, BDCS[bdc].cik, o.period ?? P2, o.norm ?? raw.toLowerCase(), o.spread ?? null, o.maturity ?? "2030-01-31", o.principal ?? "1000000", o.pct ?? null, `https://example.test/h/${hSeq}`],
     );
     return id;
   }
@@ -309,6 +309,37 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     ]);
     expect(pairs.map((p: { score: string }) => Number(p.score))).toEqual([0.9167, 0.85, 0.81]); // NO_MATCH and AUTO pairs are not listed
     expect(pairs[1]).toMatchObject({ rawNameA: "Pair One A", rawNameB: "Pair One B", spreadBpsA: "500", spreadBpsB: "510", maturityDateA: "2030-01-31" });
+  });
+
+  it("pairs and clusters of another period are neither listed by E6 nor counted by E1 pendingReviewCount (measured period only)", async () => {
+    await seedFilings();
+    const mk = async (period: string, tag: string) => ({
+      a: await holding(0, `${tag} A`, { period }), b: await holding(1, `${tag} B`, { period }),
+      c: await holding(0, `${tag} C`, { period }), d: await holding(0, `${tag} D`, { period }), e: await holding(1, `${tag} E`, { period }),
+    });
+    const m = await mk(P2, "Measured"), o = await mk(P1, "Prior");
+    for (const [x, period] of [[m, P2], [o, P1]] as const) {
+      await pair(x.a, x.b, period === P2 ? "0.85" : "0.9", "REVIEW");
+      const cl = (await pool.query(`INSERT INTO review_clusters (period_end_date, reason) VALUES ($1, 'SAME_BDC_COLLISION') RETURNING cluster_id`, [period])).rows[0].cluster_id;
+      for (const h of [x.c, x.d, x.e]) await pool.query(`INSERT INTO review_cluster_members (cluster_id, holding_id) VALUES ($1, $2)`, [cl, h]);
+      await pair(x.c, x.e, "0.97", "AUTO");
+      await pair(x.d, x.e, "0.96", "AUTO");
+    }
+    // a pair that spans two periods cannot be a candidate, but it must not be listed even if one were stored
+    await pair(m.c, o.e, "0.88", "REVIEW");
+    const queue = await request(app).get("/api/review-queue");
+    expect(queue.body.map((i: { type: string }) => i.type)).toEqual(["cluster", "pair"]);
+    expect(queue.body.every((i: { periodEnd: string }) => i.periodEnd === P2)).toBe(true);
+    expect(queue.body[0].holdings.map((h: { holdingId: number }) => h.holdingId)).toEqual([m.c, m.d, m.e]);
+    expect(queue.body[0].pairs).toHaveLength(2);
+    expect(queue.body[1]).toMatchObject({ holdingIdA: m.a, holdingIdB: m.b });
+    const overview = await request(app).get("/api/overview");
+    expect(overview.body.pendingReviewCount).toBe(2); // 1 measured REVIEW pair + 1 measured cluster, not the 2 prior-period items or the mixed pair
+    // the filter follows MEASURED_PERIOD_END: the same data seen from the other quarter
+    const other = createApp({ pool, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: P1 });
+    const q1 = await request(other).get("/api/review-queue");
+    expect(q1.body.map((i: { type: string; periodEnd: string }) => [i.type, i.periodEnd])).toEqual([["cluster", P1], ["pair", P1]]);
+    expect((await request(other).get("/api/overview")).body.pendingReviewCount).toBe(2);
   });
 
   it("E6 is an empty list when nothing is waiting", async () => {

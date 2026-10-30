@@ -66,7 +66,7 @@ E1 GET /api/overview
   divergenceSplit: { agreement, mild, flagged } | null }
 
 All counts are integers. divergenceSplit holds facility counts, not percentages (the UI computes percentages). It is null until facility_summary has rows.
-pendingReviewCount is REVIEW pairs plus review clusters.
+pendingReviewCount is REVIEW pairs plus review clusters. [v2 clarification] Only the measured period (MEASURED_PERIOD_END) counts: pairs and clusters of another period are not included.
 measuredPeriodEnd lets the UI mark any row from another period as outside the measured set.
 [v2] E1 adds flaggedExposureUsd: Decimal | null, the sum of exposureUsd over FLAGGED facilities, null until facility_summary has rows. Same representation as principal in E5.
 E2 GET /api/borrowers?search=
@@ -120,7 +120,7 @@ cluster: { type: "cluster", clusterId, periodEnd, reason: "SAME_BDC_COLLISION",
                          spreadBps, sourceUrl } ],
            pairs:    [ { holdingIdA, holdingIdB, score, status } ] }
 
-Pair items are candidate_pairs with status REVIEW. Cluster items come from review_clusters.
+Pair items are candidate_pairs with status REVIEW. Cluster items come from review_clusters. [v2 clarification] Only the measured period (MEASURED_PERIOD_END) is listed: a pair or cluster of another period, such as an out-of-time run on 2026-03-31, is not.
 A cluster's pairs are the AUTO or CONFIRMED edges that formed it. Each can be rejected through E8, which is how a cluster gets resolved (reject a pair, then re-run compare.py).
 Sort: clusters first, then pairs by score descending, then holdingIdA, holdingIdB. Score is shown here. It is hidden only on the labeling page.
 E7 and E8

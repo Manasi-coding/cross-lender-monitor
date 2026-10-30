@@ -279,7 +279,7 @@ CREATE TABLE review_cluster_members (
 -- Both sampling phases draw only candidate pairs from the measured period (MEASURED_PERIOD_END).
 
 -- Singleton: the current matcher freeze. Written by `config --freeze`, deleted by `config --unfreeze` (§12.6).
--- matcher_config_hash covers the normalization, blocking, scoring and bands config sections plus the
+-- matcher_config_hash covers the normalization, blocking, scoring, bands and filers config sections plus the
 -- source files listed in freeze.hashed_files. The name is kept short; it is a hash of the matcher, not only of config.
 CREATE TABLE matcher_freeze (
   freeze_id            INT PRIMARY KEY DEFAULT 1 CHECK (freeze_id = 1),
