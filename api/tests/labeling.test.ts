@@ -1,9 +1,8 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
 import { createApp } from "../src/app";
+import { baseUrl, createScratch } from "./db";
 
 // SPEC tests 15 and 24 for E11 and E12. The flag-off cases need no database. The flag-on cases run against a
 // scratch database created from DATABASE_URL (CI service container or the compose db on localhost) and dropped after.
@@ -26,14 +25,7 @@ describe("SPEC 24: flag off", () => {
   });
 });
 
-const baseUrl = process.env.DATABASE_URL;
 const FORBIDDEN = ["score", "status", "band", "scoreband", "phase", "draworder", "draw_order", "score_band"];
-
-function withDb(url: string, name: string): string {
-  const u = new URL(url);
-  u.pathname = "/" + name;
-  return u.toString();
-}
 
 function keysDeep(x: unknown, out: string[] = []): string[] {
   if (Array.isArray(x)) x.forEach((v) => keysDeep(v, out));
@@ -47,8 +39,7 @@ function keysDeep(x: unknown, out: string[] = []): string[] {
 }
 
 describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
-  const dbName = "test_api_" + Math.random().toString(16).slice(2, 12);
-  let admin: Pool;
+  let db: Awaited<ReturnType<typeof createScratch>>;
   let pool: Pool;
   let app: ReturnType<typeof createApp>;
   let h: number[]; // holding ids
@@ -83,20 +74,13 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
   }
 
   beforeAll(async () => {
-    admin = new Pool({ connectionString: withDb(baseUrl!, "postgres") });
-    await admin.query(`CREATE DATABASE "${dbName}"`);
-    pool = new Pool({ connectionString: withDb(baseUrl!, dbName) });
-    const dir = join(__dirname, "..", "..", "db", "migrations");
-    for (const f of readdirSync(dir).filter((x) => /^\d{3}_.*\.sql$/.test(x)).sort()) {
-      await pool.query(readFileSync(join(dir, f), "utf-8"));
-    }
+    db = await createScratch("test_api");
+    pool = db.pool;
     app = createApp({ pool, enableLabeling: true, nodeEnv: "production", measuredPeriodEnd: "2026-06-30" });
   });
 
   afterAll(async () => {
-    await pool?.end();
-    await admin?.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
-    await admin?.end();
+    await db?.drop();
   });
 
   beforeEach(async () => {
