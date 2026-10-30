@@ -46,6 +46,10 @@ sampling:                          # not part of the matcher hash; no label move
   heldout_auto: 60                 # held-out AUTO band sample size, adjustable (Day 8)
   heldout_per_band: 25             # held-out, every other band: min(25, band size) (Day 8)
   seed: 1                          # fixed so draws are reproducible
+  outoftime_period: "2026-03-31"   # the out-of-time sample (phase OUTOFTIME): candidate pairs of this quarter only, never the measured period
+  outoftime_seed: 3                # each band uses Random("<seed>:<band>"), the draw order Random("<seed>:order")
+  outoftime_sizes: {AUTO: 30, REVIEW: 25, JUST_BELOW: 25, LOW: 0}   # a cap per band, taken as min(cap, band size): REVIEW and JUST_BELOW in full, LOW not sampled
+  heldout_seed: 2                  # the held-out draw (Day 8 afternoon); each band uses Random("<seed>:<band>"), the draw order Random("<seed>:order")
 evaluation:
   bootstrap_resamples: 1000
   bootstrap_seed: 1

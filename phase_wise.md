@@ -236,7 +236,7 @@ Tests: 15, 24.
 Gate: about 40 tuning labels in labeled_pairs with MATCH, NO_MATCH and UNSURE counts noted in your DECISIONS.md draft.
 Phase 6: Facilities and API (Day 7)
 Finish compare.py (section 6.5). Provisional means it uses AUTO and CONFIRMED pairs at the current thresholds, and it is re-run on Day 9.
-(v2, Day 7) compare.py also writes exposure_usd (F1). E4 gets the new fields and the optional flag and sort parameters (CONTRACT.md, v2 blocks). Migration 009 (exposure_usd only; the dossier columns and signal codes are migration 010 on Day 9) runs before this (007 and 008 are used).
+(v2, Day 7) compare.py also writes exposure_usd (F1). E4 gets the new fields and the optional flag and sort parameters (CONTRACT.md, v2 blocks). Migration 009 (exposure_usd only; the dossier columns and signal codes are migration 011 on Day 9) runs before this (007 and 008 are used).
 Build E1 to E8 and E10 exactly as in CONTRACT.md. Delete the temporary dev route. Contract tests per endpoint: shape, sort order, error codes, null rule.
 Informal sanity checks (not reported): spot-check blocking on 10 random holdings, and check 10 displayed comparison rows against the actual SEC filing by hand.
 Tests: 8, 9, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 26, and 27, 28 and 31 for the v2 additions.
@@ -266,7 +266,7 @@ Gate: all 26 tests and the v2 tests 27 to 32, 37 and 38 (33 to 36 if F3 is built
 Phase 10: Docs (Day 11)
 DECISIONS.md (written by you, section 9) and the README: problem and ICE context, a five-line glossary for non-finance readers (BDC, syndicated loan, fair value, par, mark), architecture, schema summary, evaluation first, the labeling approach with a link to DECISIONS.md instead of a separate methodology page, sensitivity table, an "If this ran at scale" section marked as ideation (SPEC section 14), limitations, source URL convention, docker compose up, and the data report numbers with the machine spec.
 Phase 11: Buffer (Day 12)
-In order: slippage from Days 4 and 5, the blocking recall check if not done, any failed gate. Splink only if everything else is done: run it on the same blocked candidate pairs with the normalized name as the only comparison column, since attributes are already enforced by blocking. State in the README whether it was built. (v2) F3 only if the Day 9 gate passed: link_history.py (migration 011, section 6.5 step 9), E4, E5 and E9 history fields, the link check (30 links, 10 per BDC) and tests 33 to 36.
+In order: slippage from Days 4 and 5, the blocking recall check if not done, any failed gate. Splink only if everything else is done: run it on the same blocked candidate pairs with the normalized name as the only comparison column, since attributes are already enforced by blocking. State in the README whether it was built. (v2) F3 only if the Day 9 gate passed: link_history.py (migration 012, section 6.5 step 9), E4, E5 and E9 history fields, the link check (30 links, 10 per BDC) and tests 33 to 36.
 6. AI and matching reference
 6.1 Normalization (normalize.py)
 Name: fold accents, lowercase, & becomes and, strip punctuation, collapse spaces, drop a leading the, drop legal form tokens and structural tokens from config. Digits stay. If the result is empty, fall back to the cleaned name and log it.
@@ -306,6 +306,7 @@ Delete all curated rows and insert in FK order inside one transaction. IDs are r
 6.6 Sampling (sample_labels.py)
 Tuning: draw tuning_size random pairs from measured-period candidate_pairs, regardless of UI status, with a seeded RNG. Assign a random permutation to draw_order. The draw is random, with no score bias. Refuses once band_sizes exists (section 6.8).
 Held-out: refuse to run unless a matcher_freeze row exists and the current matcher hash equals it, and refuse if band_sizes already has rows (section 6.8). Bands come from candidate_pairs.score and the frozen edges. The sampling frame is all measured-period candidate pairs minus tuning pairs. Draw heldout_auto pairs (default 60, adjustable) from the AUTO band and min(heldout_per_band, band size) pairs (default 25) from every other band, so a band of 25 or fewer is labeled in full. Write label_samples with phase = HELDOUT and the band, and write band_sizes with the frame sizes (these are the N_b in the weighted formulas), the sample sizes and the matcher hash.
+Held-out seed: sampling.heldout_seed, stored in band_sizes.draw_seed (migration 010). Out-of-time (phase OUTOFTIME, after the freeze): the same freeze and hash check, then the candidate pairs of sampling.outoftime_period (the prior quarter, never the measured period) by stored score, min(cap, band size) per band from sampling.outoftime_sizes (AUTO 30, REVIEW and JUST_BELOW in full, LOW 0), seed sampling.outoftime_seed. It writes label_samples and outoftime_band_sizes (frame size, sample size, period, seed, hash). Report only: evaluate.py and E9 read phase HELDOUT only.
 Both phases never draw a pair from another period.
 6.7 Evaluation (evaluate.py)
 Refuse to run unless the current matcher hash equals both matcher_freeze.matcher_config_hash and band_sizes.matcher_config_hash, or if any drawn held-out sample is unlabeled.
@@ -320,10 +321,10 @@ The hash. config.py computes the matcher hash: sha256 over the canonical JSON of
 Commands.
 python -m pipeline.config --hash: prints the current hash. Read-only.
 python -m pipeline.config --freeze: refuses if a matcher_freeze row already exists. Otherwise inserts the single row (hash, git sha when available).
-python -m pipeline.config --unfreeze: asks for confirmation, dumps held-out label_samples, held-out labeled_pairs, band_sizes and metric_results to backups/ as JSON, then deletes them and the matcher_freeze row. Tuning samples and tuning labels stay.
+python -m pipeline.config --unfreeze: asks for confirmation, dumps held-out and out-of-time label_samples, their labeled_pairs, band_sizes, outoftime_band_sizes and metric_results to backups/ as JSON, then deletes them and the matcher_freeze row. Tuning samples and tuning labels stay.
 Enforcement, all keyed off matcher_freeze.
 normalize.py, block.py and match.py refuse to run while a freeze row exists.
-sample_labels.py --phase heldout refuses unless a freeze row exists and the current hash equals it. It also refuses if band_sizes already has rows. It copies the stored hash into band_sizes.
+sample_labels.py --phase heldout refuses unless a freeze row exists and the current hash equals it. It also refuses if band_sizes already has rows. It copies the stored hash into band_sizes. sample_labels.py --phase outoftime makes the same checks and writes outoftime_band_sizes.
 sample_labels.py --phase tuning refuses once band_sizes exists, since a new tuning pair could overlap the held-out sample.
 evaluate.py refuses unless the current hash equals both matcher_freeze.matcher_config_hash and band_sizes.matcher_config_hash.
 report.py only reads, so it runs after the freeze. compare.py is not part of the matcher and also runs after the freeze.

@@ -69,7 +69,7 @@ export function registerLabeling(app: Express, pool: Pool) {
       `SELECT s.sample_id, s.phase, s.holding_id_a, s.holding_id_b
          FROM label_samples s
         WHERE NOT EXISTS (SELECT 1 FROM labeled_pairs l WHERE l.sample_id = s.sample_id)
-        ORDER BY CASE s.phase WHEN 'TUNING' THEN 0 ELSE 1 END, s.draw_order, s.sample_id
+        ORDER BY CASE s.phase WHEN 'TUNING' THEN 0 WHEN 'HELDOUT' THEN 1 WHEN 'OUTOFTIME' THEN 2 ELSE 3 END, s.draw_order, s.sample_id
         LIMIT 1`,
     );
     if (next.rows.length === 0) {
@@ -113,7 +113,7 @@ export function registerLabeling(app: Express, pool: Pool) {
     const { rows } = await pool.query<{ sampleId: number; label: string; labeledAt: Date }>(
       `INSERT INTO labeled_pairs (sample_id, holding_id_a, holding_id_b, label, labeled_by, sampling_method, score_band)
        SELECT s.sample_id, s.holding_id_a, s.holding_id_b, $2, $3,
-              CASE s.phase WHEN 'TUNING' THEN 'BLOCKED' ELSE 'STRATIFIED' END, s.score_band
+              CASE s.phase WHEN 'TUNING' THEN 'BLOCKED' WHEN 'HELDOUT' THEN 'STRATIFIED' WHEN 'OUTOFTIME' THEN 'STRATIFIED' END, s.score_band
          FROM label_samples s
         WHERE s.sample_id = $1
        ON CONFLICT (sample_id) DO UPDATE

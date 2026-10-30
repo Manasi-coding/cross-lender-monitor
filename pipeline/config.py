@@ -149,8 +149,8 @@ def require_frozen_matching(conn, who: str, cfg: dict | None = None, root: Path 
 
 
 def unfreeze(conn, backup_dir: Path, confirmed: bool) -> dict:
-    """Dump the held-out label_samples, held-out labeled_pairs, band_sizes and metric_results to backup_dir as JSON, delete them
-    and the freeze row. Tuning samples and tuning labels stay. Nothing happens unless confirmed is True."""
+    """Dump the held-out and out-of-time label_samples and labeled_pairs, band_sizes, outoftime_band_sizes and metric_results to
+    backup_dir as JSON, delete them and the freeze row. Tuning samples and tuning labels stay. Nothing happens unless confirmed is True."""
     if not confirmed:
         raise SystemExit("--unfreeze not confirmed: nothing was changed.")
 
@@ -164,16 +164,20 @@ def unfreeze(conn, backup_dir: Path, confirmed: bool) -> dict:
         "matcher_freeze": rows("SELECT * FROM matcher_freeze"),
         "label_samples_heldout": rows("SELECT * FROM label_samples WHERE phase = 'HELDOUT' ORDER BY sample_id"),
         "labeled_pairs_heldout": rows("SELECT l.* FROM labeled_pairs l JOIN label_samples s USING (sample_id) WHERE s.phase = 'HELDOUT' ORDER BY l.pair_id"),
+        "label_samples_outoftime": rows("SELECT * FROM label_samples WHERE phase = 'OUTOFTIME' ORDER BY sample_id"),
+        "labeled_pairs_outoftime": rows("SELECT l.* FROM labeled_pairs l JOIN label_samples s USING (sample_id) WHERE s.phase = 'OUTOFTIME' ORDER BY l.pair_id"),
         "band_sizes": rows("SELECT * FROM band_sizes ORDER BY score_band"),
+        "outoftime_band_sizes": rows("SELECT * FROM outoftime_band_sizes ORDER BY score_band"),
         "metric_results": rows("SELECT * FROM metric_results ORDER BY metric_id"),
     }
     backup_dir.mkdir(parents=True, exist_ok=True)
     path = backup_dir / f"unfreeze_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.json"
     path.write_text(json.dumps(dump, indent=2, default=str), encoding="utf-8")
     with conn.transaction():
-        conn.execute("DELETE FROM labeled_pairs WHERE sample_id IN (SELECT sample_id FROM label_samples WHERE phase = 'HELDOUT')")
-        conn.execute("DELETE FROM label_samples WHERE phase = 'HELDOUT'")
+        conn.execute("DELETE FROM labeled_pairs WHERE sample_id IN (SELECT sample_id FROM label_samples WHERE phase IN ('HELDOUT', 'OUTOFTIME'))")
+        conn.execute("DELETE FROM label_samples WHERE phase IN ('HELDOUT', 'OUTOFTIME')")
         conn.execute("DELETE FROM band_sizes")
+        conn.execute("DELETE FROM outoftime_band_sizes")
         conn.execute("DELETE FROM metric_results")
         conn.execute("DELETE FROM matcher_freeze")
     return {"backup": str(path), **{k: len(v) for k, v in dump.items() if isinstance(v, list)}}

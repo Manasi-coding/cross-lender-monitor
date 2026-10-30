@@ -188,6 +188,53 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
     expect(res.text).toBe("");
   });
 
+  it("E11 serves OUTOFTIME after HELDOUT, counts progress per phase and still shows no phase, band, score or status", async () => {
+    const oot = await sample("OUTOFTIME", h[4], h[5], 1, "JUST_BELOW");
+    const held = await sample("HELDOUT", h[0], h[1], 2, "AUTO");
+    let res = await request(app).get("/api/label/next");
+    expect(res.body.sampleId).toBe(held);                                   // HELDOUT first although its draw order is larger
+    expect(res.body.progress).toEqual({ labeled: 0, total: 1 });
+    await request(app).post("/api/label").send({ sampleId: held, label: "MATCH", labeledBy: "t" });
+    res = await request(app).get("/api/label/next");
+    expect(res.status).toBe(200);
+    expect(res.body.sampleId).toBe(oot);
+    expect(res.body.progress).toEqual({ labeled: 0, total: 1 });
+    expect(Object.keys(res.body).sort()).toEqual(["holdingA", "holdingB", "progress", "sampleId"]);
+    const keys = keysDeep(res.body).map((k) => k.toLowerCase());
+    for (const bad of FORBIDDEN) expect(keys).not.toContain(bad);
+    const text = JSON.stringify(res.body);
+    for (const bad of ["OUTOFTIME", "JUST_BELOW", "HELDOUT", "0.85"]) expect(text).not.toContain(bad);
+    await request(app).post("/api/label").send({ sampleId: oot, label: "NO_MATCH", labeledBy: "t" });
+    expect((await request(app).get("/api/label/next")).status).toBe(204);
+  });
+
+  it("an OUTOFTIME pair of the prior quarter shows only names of its own period in crossFilingNames", async () => {
+    const q1 = (
+      await pool.query(
+        `INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, accession_number, source_url)
+         VALUES ('0000000003', 'BDC 3', '10-Q', '2026-03-31', '2026-05-11', 'acc-q1', 'https://example.test') RETURNING filing_id`,
+      )
+    ).rows[0].filing_id;
+    const a = await addHolding(q1, "Prior Alpha LLC", "prior", "0000000001", { period: "2026-03-31" });
+    const b = await addHolding(q1, "Prior Alpha Inc", "prior", "0000000002", { period: "2026-03-31" });
+    await addHolding(q1, "Prior Alpha Third", "prior", "0000000003", { period: "2026-03-31" });
+    await addHolding(q1, "Prior Alpha Now", "prior", "0000000003", { period: "2026-06-30" });
+    await sample("OUTOFTIME", a, b, 1, "AUTO");
+    const res = await request(app).get("/api/label/next");
+    expect(res.body.holdingA.crossFilingNames).toEqual(["Prior Alpha Third"]);
+    expect(JSON.stringify(res.body)).not.toContain("Prior Alpha Now");
+  });
+
+  it("E12 gives an OUTOFTIME sample the method STRATIFIED and copies its band", async () => {
+    const oot = await sample("OUTOFTIME", h[4], h[5], 1, "REVIEW");
+    const before = await counts();
+    const r = await request(app).post("/api/label").send({ sampleId: oot, label: "MATCH", labeledBy: "me", samplingMethod: "BLOCKED" });
+    expect(r.status).toBe(200);
+    expect(await counts()).toEqual({ ...before, labeled_pairs: before.labeled_pairs + 1 });
+    const rows = (await pool.query(`SELECT sample_id, sampling_method, score_band FROM labeled_pairs`)).rows;
+    expect(rows).toEqual([{ sample_id: oot, sampling_method: "STRATIFIED", score_band: "REVIEW" }]);
+  });
+
   it("E12 writes labeled_pairs only and derives sampling_method and score_band on the server", async () => {
     const tuning = await sample("TUNING", h[0], h[1], 1);
     const held = await sample("HELDOUT", h[4], h[5], 1, "REVIEW");

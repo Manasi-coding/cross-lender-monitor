@@ -292,7 +292,7 @@ CREATE TABLE label_samples (
   sample_id     SERIAL PRIMARY KEY,
   holding_id_a  INT NOT NULL REFERENCES normalized_holdings(holding_id),
   holding_id_b  INT NOT NULL REFERENCES normalized_holdings(holding_id),
-  phase         TEXT NOT NULL,                -- TUNING | HELDOUT
+  phase         TEXT NOT NULL,                -- TUNING | HELDOUT | OUTOFTIME (the out-of-time sample, migration 010)
   score_band    TEXT,                         -- AUTO | REVIEW | JUST_BELOW | LOW; HELDOUT only, assigned from candidate_pairs.score at draw time
   draw_order    INT NOT NULL,                 -- random permutation; E11 serves in this order so order leaks nothing
   drawn_at      TIMESTAMPTZ DEFAULT now(),
@@ -305,6 +305,7 @@ CREATE TABLE band_sizes (
   band_size            INT NOT NULL,          -- sampling frame size in this band: measured-period candidate pairs minus the tuning pairs, at draw time (the N_b in §12.6)
   sample_size          INT NOT NULL,
   matcher_config_hash  TEXT NOT NULL,         -- equals matcher_freeze.matcher_config_hash at draw time
+  draw_seed            INT,                        -- the seed of the held-out draw (sampling.heldout_seed); added Day 8 (migration 010)
   drawn_at             TIMESTAMPTZ DEFAULT now()
 );
 
@@ -318,7 +319,7 @@ CREATE TABLE labeled_pairs (
   label            TEXT NOT NULL,          -- MATCH | NO_MATCH | UNSURE
   labeled_by       TEXT NOT NULL,
   labeled_at       TIMESTAMPTZ DEFAULT now(),
-  sampling_method  TEXT NOT NULL,          -- BLOCKED (tuning) | STRATIFIED (held-out)
+  sampling_method  TEXT NOT NULL,          -- BLOCKED (tuning) | STRATIFIED (held-out and out-of-time)
   score_band       TEXT                    -- copied from label_samples for held-out rows, see §12.6
 );
 
@@ -346,7 +347,10 @@ v2 schema additions. Migration numbers: 007 (normalized flags) and 008 (currency
 ALTER TABLE facility_summary ADD COLUMN exposure_usd NUMERIC;   -- backfill: (divergence_pts / 100) * MIN(principal over included holdings), then SET NOT NULL and CHECK (exposure_usd >= 0)
 CREATE INDEX idx_fs_exposure ON facility_summary (exposure_usd DESC, facility_id);
 CREATE INDEX idx_fs_flag     ON facility_summary (divergence_flag);
--- migration 010 (F2, Day 9, not built): the dossier columns and the signal codes
+-- migration 010 (Day 8, built): draw records. band_sizes.draw_seed, and the sizes of the out-of-time sample, which band_sizes cannot hold (its primary key is the band alone).
+ALTER TABLE band_sizes ADD COLUMN draw_seed INT;
+CREATE TABLE outoftime_band_sizes (score_band TEXT PRIMARY KEY, band_size INT NOT NULL, sample_size INT NOT NULL, period_end_date DATE NOT NULL, draw_seed INT NOT NULL, matcher_config_hash TEXT NOT NULL, drawn_at TIMESTAMPTZ DEFAULT now());   -- the prior quarter, never the measured period
+-- migration 011 (F2, Day 9, not built): the dossier columns and the signal codes
 ALTER TABLE facility_comparisons
   ADD COLUMN cost           NUMERIC,
   ADD COLUMN cost_pct_par   NUMERIC,   -- NULL unless fair_value_pct_par is non-null
@@ -356,7 +360,7 @@ ALTER TABLE facility_comparisons
   ADD COLUMN maturity_date  DATE,
   ADD COLUMN non_accrual    BOOLEAN;
 ALTER TABLE facility_summary ADD COLUMN signal_codes TEXT[];   -- backfilled by the compare.py rebuild, then NOT NULL; no default stands in for signals that were not computed
--- migration 011 (F3 only, not built)
+-- migration 012 (F3 only, not built)
 CREATE TABLE holding_history_links (holding_id INT PRIMARY KEY REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL UNIQUE REFERENCES normalized_holdings(holding_id), link_rule TEXT NOT NULL);   -- EXACT_KEY | EXACT_MATURITY
 CREATE TABLE facility_history (facility_id INT PRIMARY KEY REFERENCES canonical_facilities(facility_id), prior_period_end DATE NOT NULL, prior_lender_count INT NOT NULL CHECK (prior_lender_count >= 2), prior_divergence_pts NUMERIC NOT NULL, prior_divergence_flag TEXT NOT NULL, persistence TEXT NOT NULL);   -- WIDENED | NARROWED | CLOSED | STABLE
 CREATE TABLE history_link_checks (check_id SERIAL PRIMARY KEY, holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), label TEXT NOT NULL, labeled_by TEXT NOT NULL, checked_at TIMESTAMPTZ DEFAULT now());   -- hand check, MATCH | NO_MATCH | UNSURE
@@ -483,6 +487,7 @@ Day 8 morning: thresholds are fixed at the defaults. Apply any normalization fix
 Day 8 afternoon: draw and label the held-out set, sampled randomly within each now-frozen band (AUTO ≥0.92, REVIEW 0.80 to 0.92, just-below 0.65 to 0.80, low <0.65). The AUTO band is sampled at a default of 60 (adjustable). Every other band is sampled at min(25, band size), so a band of 25 or fewer pairs is labeled in full. Record each band's frame size (measured-period candidate pairs minus the tuning pairs, into band_sizes.band_size), needed to weight precision/recall across bands.
 Any matcher change after step 3 invalidates the held-out set. If a bug forces a change, re-draw and re-label a fresh held-out 100 against the new frozen bands — don't reuse the old one.
 Pool and enforcement. Tuning and held-out pairs are drawn only from candidate pairs in the measured period, and the held-out frame excludes the tuning pairs. The tuning draw stays random. The sampling script assigns each held-out pair its band from candidate_pairs.score at draw time and stores it in label_samples.score_band. Freeze enforcement (full rules in phase_wise.md §6.8): config --freeze writes the matcher hash (the config sections plus the matcher source files) to matcher_freeze. The held-out draw refuses to run without a freeze row, refuses if the current hash differs from it, and copies the hash into band_sizes. evaluate.py refuses if the current hash differs from either. This enforces step 4 mechanically, including the window between the freeze and the draw. Metrics read only labeled_pairs, label_samples, band_sizes and blocking_recall_checks. They never read candidate_pairs.status, so review-queue clicks cannot reach any number.
+Out-of-time sample (Day 8 afternoon, after the freeze). A second labeled sample, phase OUTOFTIME, drawn from the candidate pairs of the prior quarter (sampling.outoftime_period, 2026-03-31; never the measured period) by their stored score, with the same freeze and hash check as the held-out draw: AUTO 30 random, REVIEW and JUST_BELOW in full, LOW not sampled (sampling.outoftime_sizes, a cap per band). Its frame sizes, sample sizes, seed (sampling.outoftime_seed) and hash go in outoftime_band_sizes. It is a report-only check that the matcher behaves on a quarter it was not built on: it is not part of the held-out evaluation, E9 and evaluate.py read only phase HELDOUT, and it never feeds a threshold. The labeling page serves it after the held-out pairs and shows the same fields; crossFilingNames stays limited to the pair's own period. --unfreeze removes its samples, labels and sizes with the held-out ones.
 Disclosure: normalization was iterated on Day 5 by inspecting unlabeled candidate pairs, and no label informed any threshold.
 Limit: a MATCH label's independent signals (industry, footnote, cross-filing name, credit agreement) confirm the borrower, not the tranche, and HPS is typed by lien class only, so a MATCH on a pair with an HPS holding does not establish that the two holdings are the same tranche.
 What is reported (all from blind held-out labels, each with its UNSURE range per §12.3):
@@ -859,7 +864,7 @@ Day 10 (+0.75, minus 0.5): Triage view, Evidence panel, new Metrics cards; drop 
 Day 11 (+0.25): README and DECISIONS additions.
 Day 12 and after (+1.5): F3 decision at the Day 9 gate. If it passes: link_history.py, compare.py step 9, E4, E5 and E9 history fields, the History strip, the link check and tests 33 to 36.
 Totals: F1 and F2 add 2.25 build days, net 1.75 after cuts, 13 to 14 build days in all; with F3, 4.25 added, net 3.75, 15 to 16 build days. If behind: F1 first, then the dossier fields without the lift table, then the lift table; F3 is the first thing dropped.
-Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1, exposure_usd, built Day 7), 010 (F2 dossier columns and signal codes, Day 9) and 011 (F3).
+Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1, exposure_usd, built Day 7), 010 (draw records, built Day 8: band_sizes.draw_seed and outoftime_band_sizes), 011 (F2 dossier columns and signal codes, Day 9) and 012 (F3). With outoftime_band_sizes the schema has 19 tables.
 Day 8 checklist (v2), before python -m pipeline.config --freeze (items 1 to 4 are done in code and tested, the freeze itself is not run yet):
 1. Put CURRENCY_UNKNOWN into normalization.excluded_reason_order in config.yaml, at the NON_USD_PRINCIPAL slot, before the matcher hash exists (the section is hashed; the slot is applied in normalize.py today).
 2. The matcher hash must turn CRLF into LF before hashing, so the hash is the same on a Windows checkout and in CI.

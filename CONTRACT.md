@@ -164,6 +164,7 @@ E11 GET /api/label/next (mounted only when ENABLE_LABELING=true, otherwise 404)
   holdingB: { same keys } }
 
 Returns the next unlabeled sample: TUNING before HELDOUT, then stored draw_order, so ordering leaks nothing about band or score. progress counts the phase being served. 204 when every drawn sample is labeled.
+[v2 clarification] A third phase, OUTOFTIME (a sample of the prior quarter's out-of-time matching run), is served after HELDOUT, then by stored draw_order. progress counts the phase being served. The fields and the rule are the same: no score, status, band, phase or draw order, and crossFilingNames is limited to the pair's own period.
 Never includes score, status, band, phase or draw order.
 crossFilingNames is the distinct raw names of other holdings, in any ingested filing, whose normalized borrower name equals this holding's, excluding holdings A and B themselves. It uses exact equality of normalized names, computed with the matcher's own normalizer, and no scoring. That makes it independent of scores and bands, but not of normalization, so a spelling variant the normalizer does not unify will not appear. State this limitation in DECISIONS.md and the README.
 E12 POST /api/label (same mount rule)
@@ -171,6 +172,7 @@ body:     { sampleId, label: "MATCH" | "NO_MATCH" | "UNSURE", labeledBy }
 response: { sampleId, label, labeledAt }
 
 Writes labeled_pairs only, as an upsert on sampleId so a mis-keyed label can be corrected. The server copies the holding ids and sets sampling_method (TUNING gives BLOCKED, HELDOUT gives STRATIFIED) and score_band from label_samples. 400 for an invalid label, 404 for an unknown sampleId.
+[v2 clarification] An OUTOFTIME sample gives sampling_method STRATIFIED and copies its score_band, like a HELDOUT one.
 Changes from the earlier E1 to E12 lists
 E1: added quarterCount, measuredPeriodEnd. divergenceSplit can be null.
 E2: latestPeriodEnd became periodEnd.
@@ -185,3 +187,4 @@ E11, E12: pairId became sampleId. E11 fields are folded into holdingA and holdin
 
 
 v2 additive changes (Day 6 docs pass): conventions gain the dossier null exception; the E4 index entry gains the optional flag and sort parameters; E1 gains flaggedExposureUsd; E4 gains divergencePts, divergenceFlag, exposureUsd, signalCount, persistence and the two parameters (400 on invalid values); E5 gains exposureUsd, signals, five row fields, history and the CURRENCY_UNKNOWN note on excludedCount; E9 gains evidenceLift, fieldCoverage and historyLinks. Tests to update when built: 12 and 22 (E5 shape), the E4 and E9 shape tests, and the null rule test.
+v2 clarifications on the labeling endpoints (Day 8): E11 serves a third phase, OUTOFTIME, after HELDOUT, and E12 maps it to sampling_method STRATIFIED. No field, parameter or error code changed.

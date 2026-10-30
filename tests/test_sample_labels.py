@@ -120,11 +120,6 @@ def test_draw_refuses_once_the_held_out_sample_exists(migrated_db):
         assert "band_sizes" in str(err.value)
 
 
-def test_heldout_phase_says_it_is_built_on_day_8(capsys):
-    assert sample_labels.main(["--phase", "heldout"]) == 2
-    assert "Day 8" in capsys.readouterr().out
-
-
 def test_tuning_report_counts_and_lists_auto_pairs_and_changes_nothing(migrated_db, monkeypatch, capsys):
     monkeypatch.setenv("DATABASE_URL", migrated_db)
     with psycopg.connect(migrated_db) as conn:
