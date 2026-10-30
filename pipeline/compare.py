@@ -19,6 +19,7 @@ Steps:
 4. A cluster is named by its most frequent borrower_normalized (ties: ascending codepoint order). Facilities are
    grouped into borrowers by exact equality of that name within the period.
 5. Divergence is max minus min fair_value_pct_par over included holdings (Decimal), flagged from the config cutoffs.
+   exposure_usd = divergence / 100 * the smallest principal among included holdings (v2 F1, a ranking key).
 Rows are inserted in a fixed order and the sequences restart, so two runs give identical ids and rows.
 """
 from __future__ import annotations
@@ -49,6 +50,11 @@ def flag_for(divergence: Decimal, mild: Decimal, flagged: Decimal) -> str:
     if divergence < flagged:
         return "MILD"
     return "FLAGGED"
+
+
+def exposure_usd(divergence_pts: Decimal, smallest_principal: Decimal) -> Decimal:
+    """(divergence_pts / 100) * MIN(principal over included holdings). Included holdings have a non-null, nonzero USD principal."""
+    return divergence_pts / Decimal(100) * smallest_principal
 
 
 def cutoffs(cfg: dict) -> tuple[Decimal, Decimal]:
@@ -181,10 +187,12 @@ def run(conn, period: date, cfg: dict | None = None) -> dict:
                     (d["facility_id"], m, period, r[1], r[2], r[7], r[8], r[9], r[10], r[11]))
             marks = [rows[m][9] for m in d["members"] if rows[m][9] is not None]
             div = max(marks) - min(marks)
+            # exposure_usd (v2 F1): the gap in points applied to the smallest compared position. A ranking key, not a loss estimate.
+            smallest = min(rows[m][8] for m in d["members"] if rows[m][9] is not None)
             d.update(lender_count=len(marks), excluded_count=len(d["members"]) - len(marks), divergence=div,
-                     flag=flag_for(div, mild, flagged))
-            conn.execute("INSERT INTO facility_summary (facility_id, lender_count, excluded_count, divergence_pts, divergence_flag) "
-                         "VALUES (%s, %s, %s, %s, %s)", (d["facility_id"], d["lender_count"], d["excluded_count"], div, d["flag"]))
+                     flag=flag_for(div, mild, flagged), exposure=exposure_usd(div, smallest))
+            conn.execute("INSERT INTO facility_summary (facility_id, lender_count, excluded_count, divergence_pts, divergence_flag, exposure_usd) "
+                         "VALUES (%s, %s, %s, %s, %s, %s)", (d["facility_id"], d["lender_count"], d["excluded_count"], div, d["flag"], d["exposure"]))
         for members in collisions:
             cid = conn.execute("INSERT INTO review_clusters (period_end_date, reason) VALUES (%s, 'SAME_BDC_COLLISION') RETURNING cluster_id",
                                (period,)).fetchone()[0]

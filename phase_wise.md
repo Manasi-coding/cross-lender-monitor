@@ -236,7 +236,7 @@ Tests: 15, 24.
 Gate: about 40 tuning labels in labeled_pairs with MATCH, NO_MATCH and UNSURE counts noted in your DECISIONS.md draft.
 Phase 6: Facilities and API (Day 7)
 Finish compare.py (section 6.5). Provisional means it uses AUTO and CONFIRMED pairs at the current thresholds, and it is re-run on Day 9.
-(v2, Day 7) compare.py also writes exposure_usd (F1). E4 gets the new fields and the optional flag and sort parameters (CONTRACT.md, v2 blocks). Migration 009 runs before this (007 and 008 are used).
+(v2, Day 7) compare.py also writes exposure_usd (F1). E4 gets the new fields and the optional flag and sort parameters (CONTRACT.md, v2 blocks). Migration 009 (exposure_usd only; the dossier columns and signal codes are migration 010 on Day 9) runs before this (007 and 008 are used).
 Build E1 to E8 and E10 exactly as in CONTRACT.md. Delete the temporary dev route. Contract tests per endpoint: shape, sort order, error codes, null rule.
 Informal sanity checks (not reported): spot-check blocking on 10 random holdings, and check 10 displayed comparison rows against the actual SEC filing by hand.
 Tests: 8, 9, 11, 12, 13, 14, 16, 17, 18, 19, 20, 21, 22, 26, and 27, 28 and 31 for the v2 additions.
@@ -266,7 +266,7 @@ Gate: all 26 tests and the v2 tests 27 to 32, 37 and 38 (33 to 36 if F3 is built
 Phase 10: Docs (Day 11)
 DECISIONS.md (written by you, section 9) and the README: problem and ICE context, a five-line glossary for non-finance readers (BDC, syndicated loan, fair value, par, mark), architecture, schema summary, evaluation first, the labeling approach with a link to DECISIONS.md instead of a separate methodology page, sensitivity table, an "If this ran at scale" section marked as ideation (SPEC section 14), limitations, source URL convention, docker compose up, and the data report numbers with the machine spec.
 Phase 11: Buffer (Day 12)
-In order: slippage from Days 4 and 5, the blocking recall check if not done, any failed gate. Splink only if everything else is done: run it on the same blocked candidate pairs with the normalized name as the only comparison column, since attributes are already enforced by blocking. State in the README whether it was built. (v2) F3 only if the Day 9 gate passed: link_history.py (migration 010, section 6.5 step 9), E4, E5 and E9 history fields, the link check (30 links, 10 per BDC) and tests 33 to 36.
+In order: slippage from Days 4 and 5, the blocking recall check if not done, any failed gate. Splink only if everything else is done: run it on the same blocked candidate pairs with the normalized name as the only comparison column, since attributes are already enforced by blocking. State in the README whether it was built. (v2) F3 only if the Day 9 gate passed: link_history.py (migration 011, section 6.5 step 9), E4, E5 and E9 history fields, the link check (30 links, 10 per BDC) and tests 33 to 36.
 6. AI and matching reference
 6.1 Normalization (normalize.py)
 Name: fold accents, lowercase, & becomes and, strip punctuation, collapse spaces, drop a leading the, drop legal form tokens and structural tokens from config. Digits stay. If the result is empty, fall back to the cleaned name and log it.

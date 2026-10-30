@@ -1,11 +1,18 @@
 import { Pool } from "pg";
 import { createApp } from "./app";
 
+// MEASURED_PERIOD_END is required: E1 returns it, and the UI marks any row from another period as outside the measured set.
+const measuredPeriodEnd = process.env.MEASURED_PERIOD_END ?? "";
+if (!/^\d{4}-\d{2}-\d{2}$/.test(measuredPeriodEnd)) {
+  throw new Error("MEASURED_PERIOD_END must be set to an ISO date (YYYY-MM-DD).");
+}
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const app = createApp({
   pool,
   enableLabeling: process.env.ENABLE_LABELING === "true",
   nodeEnv: process.env.NODE_ENV ?? "production",
+  measuredPeriodEnd,
 });
 
 const port = Number(process.env.PORT ?? 3000);

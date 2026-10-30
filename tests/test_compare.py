@@ -320,3 +320,77 @@ def test_one_marked_holding_with_only_unmarked_partners_is_not_a_facility(migrat
         res = compare.run(conn, P, CFG)
         assert facilities(conn) == [] and conn.execute("SELECT count(*) FROM review_clusters").fetchone()[0] == 0
     assert len(res["failed"]) == 1
+
+
+# ------------------------------------------------------------------ exposure_usd (v2 F1, tests 27 and 28 on the compare side)
+def test_27_exposure_is_the_gap_in_points_times_the_smallest_included_principal(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, b, c, d, e = seed_normalized(conn, [h(B1, "two lender", pct="95", principal="1000000"), h(B2, "two lender", pct="98", principal="4000000"),
+                                               h(B1, "three lender", pct="90", principal="5000000"), h(B2, "three lender", pct="95", principal="2000000"),
+                                               h(B3, "three lender", pct="99", principal="8000000")])
+        pair(conn, a, b)
+        pair(conn, c, d)
+        pair(conn, d, e)
+        compare.run(conn, P, CFG)
+        got = dict(conn.execute(
+            "SELECT b.canonical_name, s.exposure_usd FROM facility_summary s JOIN canonical_facilities f USING (facility_id) "
+            "JOIN canonical_borrowers b USING (canonical_borrower_id)").fetchall())
+    assert got["two lender"] == Decimal("30000")        # 3.0 points of 1,000,000
+    assert got["three lender"] == Decimal("180000")     # 9.0 points of the smallest principal, 2,000,000
+
+
+def test_exposure_ignores_an_excluded_holding_and_uses_only_included_principals(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, b, c = seed_normalized(conn, [h(B1, pct="90", principal="5000000"), h(B2, pct="94", principal="3000000"),
+                                         h(B3, pct=None, principal="10", excluded_reason="UNFUNDED_COMMITMENT")])
+        pair(conn, a, b)
+        pair(conn, b, c)
+        compare.run(conn, P, CFG)
+        (exposure,) = conn.execute("SELECT exposure_usd FROM facility_summary").fetchone()
+    assert exposure == Decimal("120000")                # 4.0 points of 3,000,000; the excluded holding's principal of 10 is not the minimum
+
+
+def test_no_facility_has_zero_exposure_only_because_compare_did_not_set_it(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        col = conn.execute("SELECT is_nullable, column_default FROM information_schema.columns "
+                           "WHERE table_name = 'facility_summary' AND column_name = 'exposure_usd'").fetchone()
+        assert col == ("NO", None)                       # NOT NULL and no default: an unset value fails instead of becoming 0
+        rows = []
+        for i, (x, y) in enumerate([("90", "95"), ("90", "91"), ("97", "97"), ("80.5", "99")]):    # divergence 5, 1, 0 and 18.5
+            rows += [h(B1, f"n{i}", pct=x, principal=str(1000000 * (i + 1))), h(B2, f"n{i}", pct=y, principal=str(2000000 * (i + 1)))]
+        ids = seed_normalized(conn, rows)
+        for i in range(4):
+            pair(conn, ids[2 * i], ids[2 * i + 1])
+        compare.run(conn, P, CFG)
+        bad = conn.execute(
+            "SELECT s.facility_id FROM facility_summary s WHERE s.exposure_usd = 0 AND s.divergence_pts > 0").fetchall()
+        recomputed = conn.execute(
+            "SELECT s.facility_id FROM facility_summary s JOIN (SELECT facility_id, MIN(principal) m FROM facility_comparisons "
+            "WHERE fair_value_pct_par IS NOT NULL GROUP BY 1) x USING (facility_id) "
+            "WHERE s.exposure_usd <> s.divergence_pts / 100 * x.m").fetchall()
+        zero = conn.execute("SELECT count(*) FROM facility_summary WHERE exposure_usd = 0").fetchone()[0]
+        total = conn.execute("SELECT count(*) FROM facility_summary").fetchone()[0]
+    assert bad == [] and recomputed == []
+    assert (zero, total) == (1, 4)                       # only the facility whose marks agree exactly has exposure 0
+
+
+def test_migration_009_backfills_existing_facilities_from_facility_comparisons(empty_db, tmp_path):
+    import shutil
+    from pipeline.migrate import MIGRATIONS_DIR, apply_migrations
+    before = tmp_path / "before"
+    before.mkdir()
+    for f in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        if f.name < "009":
+            shutil.copy(f, before / f.name)
+    with psycopg.connect(empty_db) as conn:
+        apply_migrations(conn, before)                   # the schema as it was before 009, with a facility already in it
+        a, b = seed_normalized(conn, [h(B1, pct="90", principal="5000000"), h(B2, pct="95", principal="2000000")])
+        conn.execute("INSERT INTO canonical_borrowers (canonical_name, period_end_date) VALUES ('x', %s)", (P,))
+        conn.execute("INSERT INTO canonical_facilities (canonical_borrower_id, period_end_date, instrument_type_norm) VALUES (1, %s, 'FIRST_LIEN')", (P,))
+        for hid, cik, pr, pct in ((a, B1, 5000000, 90), (b, B2, 2000000, 95)):
+            conn.execute("INSERT INTO facility_comparisons (facility_id, holding_id, period_end_date, bdc_cik, bdc_name, principal, fair_value_pct_par, source_url) "
+                         "VALUES (1, %s, %s, %s, 'x', %s, %s, 'u')", (hid, P, cik, pr, pct))
+        conn.execute("INSERT INTO facility_summary VALUES (1, 2, 0, 5, 'FLAGGED')")
+        applied = apply_migrations(conn)
+        assert applied == [f.name for f in sorted(MIGRATIONS_DIR.glob("*.sql")) if f.name >= "009"]
+        assert conn.execute("SELECT exposure_usd FROM facility_summary").fetchone()[0] == Decimal("100000")     # 5 points of 2,000,000

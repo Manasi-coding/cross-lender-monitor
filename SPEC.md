@@ -341,8 +341,12 @@ CREATE TABLE metric_results (
 Guard, mandatory: fair_value_pct_par computation must check principal IS NOT NULL AND principal != 0 AND principal_currency = 'USD' and the row is not flagged by the filer's unfunded-commitment footnote pattern (configured per filer) before dividing; otherwise store NULL and exclude the row from comparisons (never silently produce Infinity/error).
 excluded_reason precedence: one reason per row, first match wins, in this order: EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL or CURRENCY_UNKNOWN, NULL_FAIR_VALUE. NON_USD_PRINCIPAL and CURRENCY_UNKNOWN share one slot: NON_USD_PRINCIPAL when the currency is known and is not USD, CURRENCY_UNKNOWN when it cannot be determined. The slot is applied in normalize.py; normalization.excluded_reason_order in config.yaml is changed to name CURRENCY_UNKNOWN on Day 8 before the matcher hash exists (section 18). A row with a reason is kept in normalized_holdings with a NULL fair_value_pct_par; it is not skipped.
 Currency ladder (pipeline/currency.py, migration 008). Where a principal unit exists it decides the currency and nothing else runs (all of 2026-06-30, ADS and ORCIC, and 114 HPS 2026-03-31 rows); the unit on cost and fair value is still ignored. HPS 2026-03-31 tags 729 principal amounts as a 'shares' fact, so a row with a principal and no unit goes down a ladder, first hit wins, and the rung is recorded in normalized_holdings.currency_source: (a) html_symbol, a currency symbol or code in the HTML principal cell; (b) reference_code, a reference-rate code that maps to one currency, with the map built only from 2026-06-30 HPS rows that have a unit, using codes where every row agrees and there are at least 5 rows; (c) period_link, an exact within-BDC link to a unique 2026-06-30 holding (same borrower_normalized, instrument description, maturity and reference code, unique on both sides) inheriting its unit; (d) unknown, giving CURRENCY_UNKNOWN. A rung is used only with agreement of at least 99% on at least 30 validation rows, a bar fixed before the numbers were seen. Validation: (a) 12 rows (7 "$", 3 SEK, 2 NOK), 12 agree, below 30 rows, disabled. (b) 612 of 612 agree on 2026-06-30 HPS, and 86 of 86 out of sample on 2026-03-31 HPS rows that have a unit, enabled; map SF to USD (524 rows), E to EUR (41), SN to GBP (25), B to AUD (10), C to CAD (7), P to USD (5). (c) ADS 449 of 471 (95.33%), ORCIC 398 of 406 (98.03%), together 847 of 877 (96.58%), below 99%, disabled. config.yaml (filers.hps.currency_ladder) enables rung (b) only. Result on HPS 2026-03-31 (806 rows): 510 rows set by rung (b), all USD; 144 stay unknown, all with no reference code, of which 123 are UNFUNDED_COMMITMENT and 21 are CURRENCY_UNKNOWN; rows with a % of par went from 5 to 433.
-v2 schema additions (not built yet; migration numbers 009 and 010, because 007 is the normalized flags and 008 is currency_source). normalized_holdings.non_accrual already exists (migration 007).
--- migration 009 (F1 and F2)
+v2 schema additions. Migration numbers: 007 (normalized flags) and 008 (currency_source) are used; v2 starts at 009. normalized_holdings.non_accrual already exists (migration 007).
+-- migration 009 (F1, built on Day 7): facility_summary.exposure_usd. Added empty, backfilled from facility_comparisons for the rows that exist, then NOT NULL with no default, so a value compare.py did not set fails instead of becoming 0.
+ALTER TABLE facility_summary ADD COLUMN exposure_usd NUMERIC;   -- backfill: (divergence_pts / 100) * MIN(principal over included holdings), then SET NOT NULL and CHECK (exposure_usd >= 0)
+CREATE INDEX idx_fs_exposure ON facility_summary (exposure_usd DESC, facility_id);
+CREATE INDEX idx_fs_flag     ON facility_summary (divergence_flag);
+-- migration 010 (F2, Day 9, not built): the dossier columns and the signal codes
 ALTER TABLE facility_comparisons
   ADD COLUMN cost           NUMERIC,
   ADD COLUMN cost_pct_par   NUMERIC,   -- NULL unless fair_value_pct_par is non-null
@@ -351,16 +355,12 @@ ALTER TABLE facility_comparisons
   ADD COLUMN pik_bps        NUMERIC,
   ADD COLUMN maturity_date  DATE,
   ADD COLUMN non_accrual    BOOLEAN;
-ALTER TABLE facility_summary
-  ADD COLUMN exposure_usd   NUMERIC NOT NULL DEFAULT 0 CHECK (exposure_usd >= 0),   -- DEFAULT 0 because the curated tables are not empty (93 facilities); compare.py rewrites every row
-  ADD COLUMN signal_codes   TEXT[]  NOT NULL DEFAULT '{}';
-CREATE INDEX idx_fs_exposure ON facility_summary (exposure_usd DESC, facility_id);
-CREATE INDEX idx_fs_flag     ON facility_summary (divergence_flag);
--- migration 010 (F3 only)
+ALTER TABLE facility_summary ADD COLUMN signal_codes TEXT[];   -- backfilled by the compare.py rebuild, then NOT NULL; no default stands in for signals that were not computed
+-- migration 011 (F3 only, not built)
 CREATE TABLE holding_history_links (holding_id INT PRIMARY KEY REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL UNIQUE REFERENCES normalized_holdings(holding_id), link_rule TEXT NOT NULL);   -- EXACT_KEY | EXACT_MATURITY
 CREATE TABLE facility_history (facility_id INT PRIMARY KEY REFERENCES canonical_facilities(facility_id), prior_period_end DATE NOT NULL, prior_lender_count INT NOT NULL CHECK (prior_lender_count >= 2), prior_divergence_pts NUMERIC NOT NULL, prior_divergence_flag TEXT NOT NULL, persistence TEXT NOT NULL);   -- WIDENED | NARROWED | CLOSED | STABLE
 CREATE TABLE history_link_checks (check_id SERIAL PRIMARY KEY, holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), label TEXT NOT NULL, labeled_by TEXT NOT NULL, checked_at TIMESTAMPTZ DEFAULT now());   -- hand check, MATCH | NO_MATCH | UNSURE
-Facilities without a row in facility_history are NO_PRIOR, derived by absence. The addendum assumed the curated tables were empty (so NOT NULL without a default was safe); they hold 93 facilities, so exposure_usd has DEFAULT 0 (recorded in DECISIONS.md).
+Facilities without a row in facility_history are NO_PRIOR, derived by absence. The addendum assumed the curated tables were empty (so NOT NULL without a default was safe); they hold 93 facilities, so migration 009 backfills exposure_usd from facility_comparisons before it sets NOT NULL, with no default value (recorded in DECISIONS.md, Day 7). Migration 009 was split from the addendum's single migration because the dossier columns and signals are Day 9 work.
 
 7. API Contract
 The API contract (E1 to E12, response shapes, error format, null rule, write rules) lives in CONTRACT.md and nowhere else. Do not copy shapes into this file. Test 12 and the shape tests in §13 check against CONTRACT.md.
@@ -853,13 +853,13 @@ Only one buffer day now
 v2 additions (F1 to F3), added to the plan above. Estimates are planning numbers, not measurements.
 Day 4 (+0.25): adapters output spread, floor and PIK columns; the non-accrual footnote pattern per filer in config. Done, as migration 007 on Day 5 and the Day 4 adapters.
 Day 5 (+0.5, gated): normalize carries non_accrual; ingest and normalize the prior quarter; restrict block and match to the measured period. Done: 2026-03-31 ingested and normalized for all three BDCs, block and match not run on it.
-Day 7 (+0.25): compare.py writes exposure_usd; E4 gets the new fields and parameters (F1).
+Day 7 (+0.25): compare.py writes exposure_usd; E4 gets the new fields and parameters (F1). Done on Day 7: migration 009, exposure_usd in compare.py, E1 flaggedExposureUsd, E4 divergencePts, divergenceFlag, exposureUsd and the flag and sort parameters.
 Day 9 (+0.75): signals and dossier columns in compare.py, E5 additions, tests 27 to 32, 37 and 38, the dossier accuracy check (F1, F2).
 Day 10 (+0.75, minus 0.5): Triage view, Evidence panel, new Metrics cards; drop Overview and Filings polish; measure latency (target under 50 ms server time and under 100 KB per response for E4 and E5, report-only, with the machine spec) (F1, F2).
 Day 11 (+0.25): README and DECISIONS additions.
 Day 12 and after (+1.5): F3 decision at the Day 9 gate. If it passes: link_history.py, compare.py step 9, E4, E5 and E9 history fields, the History strip, the link check and tests 33 to 36.
 Totals: F1 and F2 add 2.25 build days, net 1.75 after cuts, 13 to 14 build days in all; with F3, 4.25 added, net 3.75, 15 to 16 build days. If behind: F1 first, then the dossier fields without the lift table, then the lift table; F3 is the first thing dropped.
-Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1 and F2) and 010 (F3).
+Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1, exposure_usd, built Day 7), 010 (F2 dossier columns and signal codes, Day 9) and 011 (F3).
 Day 8 checklist (v2), before python -m pipeline.config --freeze:
 1. Put CURRENCY_UNKNOWN into normalization.excluded_reason_order in config.yaml, at the NON_USD_PRINCIPAL slot, before the matcher hash exists (the section is hashed; the slot is applied in normalize.py today).
 2. The matcher hash must turn CRLF into LF before hashing, so the hash is the same on a Windows checkout and in CI.

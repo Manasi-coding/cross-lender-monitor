@@ -16,7 +16,7 @@ const stub = {
 
 describe("SPEC 24: flag off", () => {
   it("E11 and E12 are not mounted: 404 in the standard shape", async () => {
-    const app = createApp({ pool: stub, enableLabeling: false, nodeEnv: "production" });
+    const app = createApp({ pool: stub, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: "2026-06-30" });
     const a = await request(app).get("/api/label/next");
     const b = await request(app).post("/api/label").send({ sampleId: 1, label: "MATCH", labeledBy: "t" });
     for (const res of [a, b]) {
@@ -90,7 +90,7 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
     for (const f of readdirSync(dir).filter((x) => /^\d{3}_.*\.sql$/.test(x)).sort()) {
       await pool.query(readFileSync(join(dir, f), "utf-8"));
     }
-    app = createApp({ pool, enableLabeling: true, nodeEnv: "production" });
+    app = createApp({ pool, enableLabeling: true, nodeEnv: "production", measuredPeriodEnd: "2026-06-30" });
   });
 
   afterAll(async () => {

@@ -12,7 +12,7 @@ const pool = {
 
 describe("error shape", () => {
   it("returns { error: { code, message } } for a route that is not mounted (E11 with the flag off)", async () => {
-    const app = createApp({ pool, enableLabeling: false, nodeEnv: "production" });
+    const app = createApp({ pool, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: "2026-06-30" });
     const res = await request(app).get("/api/label/next");
     expect(res.status).toBe(404);
     expect(Object.keys(res.body)).toEqual(["error"]);
@@ -23,12 +23,12 @@ describe("error shape", () => {
 });
 
 describe("skeleton routes", () => {
-  it("returns 501 NOT_IMPLEMENTED in the standard shape for E5", async () => {
-    const app = createApp({ pool, enableLabeling: false, nodeEnv: "production" });
-    const res = await request(app).get("/api/facilities/1/comparison");
+  it("returns 501 NOT_IMPLEMENTED in the standard shape for E9", async () => {
+    const app = createApp({ pool, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: "2026-06-30" });
+    const res = await request(app).get("/api/metrics");
     expect(res.status).toBe(501);
     expect(res.body).toEqual({
-      error: { code: "NOT_IMPLEMENTED", message: "E5 is not implemented yet." },
+      error: { code: "NOT_IMPLEMENTED", message: "E9 is not implemented yet." },
     });
   });
 });
