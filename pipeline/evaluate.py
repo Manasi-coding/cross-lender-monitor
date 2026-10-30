@@ -8,11 +8,12 @@ writes nothing. No result changes or suggests a threshold, a rule or a config va
 
 Reporting rules, fixed before the held-out labels existed (DECISIONS.md):
   Held-out (phase HELDOUT only): per band the frame size, the sampled n and the MATCH, NO_MATCH and UNSURE counts. Precision is
-  MATCH / (MATCH + NO_MATCH) with UNSURE excluded, and the worst case MATCH / (MATCH + NO_MATCH + UNSURE) with UNSURE counted as
-  wrong, each with a 95% Wilson interval. A band labeled in full is reported as counts, not as an estimate. REVIEW is reported as
+  MATCH / (MATCH + NO_MATCH) with UNSURE excluded, the worst case MATCH / (MATCH + NO_MATCH + UNSURE) with UNSURE counted as
+  wrong, and the best case (MATCH + UNSURE) / (MATCH + NO_MATCH + UNSURE) with UNSURE counted as MATCH, each with a 95% Wilson
+  interval. A band labeled in full is reported as counts, not as an estimate. REVIEW is reported as
   "x of n". Only AUTO and REVIEW are predicted matches, so only they have a precision; JUST_BELOW and LOW show the match rate
   (matches the matcher missed), which is not a precision.
-  Out-of-time (phase OUTOFTIME): the same table and the same two numbers, with its own sizes, never pooled with held-out.
+  Out-of-time (phase OUTOFTIME): the same table and the same three numbers, with its own sizes, never pooled with held-out.
   Tuning (phase TUNING): counts only, diagnostic, no precision, never in a metric.
 """
 from __future__ import annotations
@@ -46,11 +47,13 @@ def pct(x: Decimal) -> str:
     return f"{(x * 100).quantize(Decimal('0.1'), rounding=ROUND_HALF_UP)}%"
 
 
-def two_numbers(c: dict, z: Decimal) -> dict:
-    """UNSURE excluded: MATCH over MATCH + NO_MATCH. Worst case: UNSURE counted as wrong, MATCH over all labeled."""
+def three_numbers(c: dict, z: Decimal) -> dict:
+    """UNSURE excluded: MATCH over MATCH + NO_MATCH. Worst case: UNSURE counted as wrong, MATCH over all labeled.
+    Best case: UNSURE counted as MATCH, MATCH + UNSURE over all labeled."""
     m, no, u = c["MATCH"], c["NO_MATCH"], c["UNSURE"]
     return {"excluded": {"k": m, "n": m + no, "ci": wilson(m, m + no, z)},
-            "worst_case": {"k": m, "n": m + no + u, "ci": wilson(m, m + no + u, z)}}
+            "worst_case": {"k": m, "n": m + no + u, "ci": wilson(m, m + no + u, z)},
+            "best_case": {"k": m + u, "n": m + no + u, "ci": wilson(m + u, m + no + u, z)}}
 
 
 def phase_counts(conn, phase: str) -> dict[str, dict[str, int]]:
@@ -90,7 +93,7 @@ def section(conn, phase: str, sizes_table: str, stored_hash: str, z: Decimal) ->
         full = sample == frame and sample > 0
         entry = {"frame": frame, "sampled": sample, "full": full, "counts": c}
         if sample and not full:
-            entry.update(two_numbers(c, z))
+            entry.update(three_numbers(c, z))
         bands[b] = entry
     return {"drawn": True, "bands": bands, "unlabeled": 0}
 
@@ -143,7 +146,8 @@ def render_section(title: str, sec: dict, note: str) -> list[str]:
             head = f"  {b}: sampled {n} of {e['frame']}. {what}"
             if b == "REVIEW":
                 head += f". MATCH {c['MATCH']} of {n}"
-            lines += [head, fmt_number("UNSURE excluded", e["excluded"]), fmt_number("worst case, UNSURE counted as wrong", e["worst_case"])]
+            lines += [head, fmt_number("UNSURE excluded", e["excluded"]), fmt_number("worst case, UNSURE counted as wrong", e["worst_case"]),
+                      fmt_number("best case, UNSURE counted as MATCH", e["best_case"])]
     return lines
 
 

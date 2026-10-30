@@ -8,7 +8,7 @@ import pytest
 
 from pipeline import evaluate
 from pipeline.config import freeze, load_config
-from pipeline.evaluate import build_report, render, two_numbers, wilson
+from pipeline.evaluate import build_report, render, three_numbers, wilson
 from pipeline.sample_labels import draw_heldout, draw_outoftime
 
 from conftest import seed_normalized
@@ -65,15 +65,20 @@ def test_wilson_stays_inside_zero_and_one_and_z_comes_from_config():
 
 
 # ------------------------------------------------------------------ the two numbers
-def test_unsure_is_excluded_in_one_number_and_counted_wrong_in_the_other():
-    r = two_numbers({"MATCH": 55, "NO_MATCH": 3, "UNSURE": 2}, Z)
+def test_unsure_is_excluded_in_one_number_counted_wrong_in_another_and_counted_match_in_the_third():
+    r = three_numbers({"MATCH": 55, "NO_MATCH": 3, "UNSURE": 2}, Z)
     assert (r["excluded"]["k"], r["excluded"]["n"]) == (55, 58)
     assert (r["worst_case"]["k"], r["worst_case"]["n"]) == (55, 60)
     assert r["excluded"]["ci"][0] == Decimal(55) / Decimal(58) and r["worst_case"]["ci"][0] == Decimal(55) / Decimal(60)
     assert r["worst_case"]["ci"][1] < r["excluded"]["ci"][1]                    # the worst case is never above
-    assert two_numbers({"MATCH": 0, "NO_MATCH": 0, "UNSURE": 0}, Z)["excluded"]["ci"] is None
-    assert two_numbers({"MATCH": 0, "NO_MATCH": 0, "UNSURE": 4}, Z)["excluded"]["ci"] is None       # all UNSURE: excluded is 0 of 0
-    assert two_numbers({"MATCH": 0, "NO_MATCH": 0, "UNSURE": 4}, Z)["worst_case"]["ci"][0] == 0
+    assert (r["best_case"]["k"], r["best_case"]["n"]) == (57, 60)             # UNSURE counted as MATCH
+    assert r["best_case"]["ci"][0] == Decimal(57) / Decimal(60) and r["best_case"]["ci"][1] > r["excluded"]["ci"][1]
+    assert r["best_case"]["ci"][0] > r["excluded"]["ci"][0] > r["worst_case"]["ci"][0]      # worst, excluded, best in order
+    assert three_numbers({"MATCH": 0, "NO_MATCH": 0, "UNSURE": 0}, Z)["excluded"]["ci"] is None
+    assert three_numbers({"MATCH": 0, "NO_MATCH": 0, "UNSURE": 0}, Z)["best_case"]["ci"] is None
+    all_unsure = three_numbers({"MATCH": 0, "NO_MATCH": 0, "UNSURE": 4}, Z)
+    assert all_unsure["excluded"]["ci"] is None       # all UNSURE: excluded is 0 of 0
+    assert all_unsure["worst_case"]["ci"][0] == 0 and all_unsure["best_case"]["ci"][0] == 1 and (all_unsure["best_case"]["k"], all_unsure["best_case"]["n"]) == (4, 4)
 
 
 def test_the_report_counts_per_band_and_gives_both_numbers_for_the_sampled_band(migrated_db):
@@ -85,12 +90,14 @@ def test_the_report_counts_per_band_and_gives_both_numbers_for_the_sampled_band(
         "AUTO": (100, 60, False), "REVIEW": (5, 5, True), "JUST_BELOW": (3, 3, True), "LOW": (2, 2, True)}
     assert b["AUTO"]["counts"] == {"MATCH": 55, "NO_MATCH": 3, "UNSURE": 2}
     assert (b["AUTO"]["excluded"]["k"], b["AUTO"]["excluded"]["n"], b["AUTO"]["worst_case"]["n"]) == (55, 58, 60)
+    assert (b["AUTO"]["best_case"]["k"], b["AUTO"]["best_case"]["n"]) == (57, 60)
     for full in ("REVIEW", "JUST_BELOW", "LOW"):                              # labeled in full: counts, no estimate
-        assert "excluded" not in b[full] and "worst_case" not in b[full]
+        assert not {"excluded", "worst_case", "best_case"} & set(b[full])
     assert b["REVIEW"]["counts"] == {"MATCH": 3, "NO_MATCH": 1, "UNSURE": 1}
     text = render(rep)
     assert "AUTO: sampled 60 of 100. precision" in text
     assert "UNSURE excluded: 55 of 58 = 94.8%" in text and "worst case, UNSURE counted as wrong: 55 of 60 = 91.7%" in text
+    assert "best case, UNSURE counted as MATCH: 57 of 60 = 95.0%" in text
     assert "REVIEW: labeled in full, 5 of 5. Counts, not an estimate. MATCH 3 of 5" in text
     assert "match rate (matches the matcher missed" not in text or "JUST_BELOW: labeled in full" in text
 
@@ -127,6 +134,7 @@ def test_out_of_time_is_reported_separately_and_never_pooled(migrated_db):
     assert h["AUTO"]["counts"] == {"MATCH": 55, "NO_MATCH": 3, "UNSURE": 2}                    # unchanged by the out-of-time labels
     assert o["AUTO"]["counts"] == {"MATCH": 25, "NO_MATCH": 5, "UNSURE": 0} and (o["AUTO"]["frame"], o["AUTO"]["sampled"]) == (40, 30)
     assert (o["AUTO"]["excluded"]["k"], o["AUTO"]["excluded"]["n"]) == (25, 30)
+    assert (o["AUTO"]["best_case"]["k"], o["AUTO"]["best_case"]["n"]) == (25, 30)             # no UNSURE there: best equals excluded
     assert (o["LOW"]["frame"], o["LOW"]["sampled"], o["LOW"]["full"]) == (3, 0, False) and "excluded" not in o["LOW"]       # not sampled: no number
     assert sum(sum(e["counts"].values()) for e in o.values()) == 34 and sum(sum(e["counts"].values()) for e in h.values()) == 60 + 5 + 3 + 2
     text = render(rep)
