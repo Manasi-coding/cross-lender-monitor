@@ -1,6 +1,6 @@
 Cross-Lender Private Credit Valuation Monitor — MASTER DOC v2
 Reference this document throughout build and test. Numbers marked "default" are starting points, not final answers. The matcher thresholds are held fixed at their defaults and no label moves them (§12.6); sample sizes marked adjustable can change.
-Document map. SPEC.md (this file) owns scope, schema, evaluation method, tests and schedule. CONTRACT.md owns the API (E1 to E12) and is the only place endpoint shapes are defined. phase_wise.md and frontend.md carry only an endpoint index copied from it. phase_wise.md is the build sequence and frontend.md is the UI plan. Where either disagrees with SPEC.md or CONTRACT.md, those two win.
+Document map. SPEC.md (this file) owns scope, schema, evaluation method, tests and schedule. CONTRACT.md owns the API (E1 to E12) and is the only place endpoint shapes are defined. phase_wise.md and frontend.md carry only an endpoint index copied from it. phase_wise.md is the build sequence and frontend.md is the UI plan. Where either disagrees with SPEC.md or CONTRACT.md, those two win. docs/V2_Addendum_Triage_Evidence_History.md is the change list for v2 (triage, evidence, history). Its content is merged into this file, CONTRACT.md, phase_wise.md and frontend.md, and those files win.
 
 1. Problem Statement
 Private credit loans are frequently syndicated — a single borrower's loan is held across multiple lenders. Business Development Companies (BDCs), public vehicles that make these loans, must file a "Consolidated Schedule of Investments" with the SEC every quarter (10-Q/10-K): every holding, with issuer name, industry, instrument type, interest rate structure, maturity, principal, cost, and fair value (the lender's own internally-determined mark).
@@ -8,8 +8,9 @@ No shared identifier exists across BDC filers. The same borrower appears under i
 This is a verified, current, named industry gap: in 2026, ICE launched ICE IDs for private credit under ICE Private Credit Intelligence, with Apollo named as ICE's anchor partner (confirmed directly from ICE's press release and platform page). ICE IDs are assigned at origination, from deal documents — a forward-looking fix. This project instead resolves identity retroactively, from already-public filings — a different, complementary problem shape, not a claim to replicate ICE's process.
 2. Solution Overview
 Ingest real SEC filings from 3 BDCs (Apollo's own Apollo Debt Solutions BDC — CIK 1837532 — plus 2 others chosen by actual borrower overlap), build a canonical borrower/facility registry via a measured entity-resolution pipeline, and compute cross-lender fair-value comparisons at the facility level, expressed as % of par, flagged by a defensible divergence threshold.
-Non-claims (state explicitly in the README): not a reconstruction of Apollo's internal valuation process; not a claim that ICE IDs are being reverse-engineered; not a claim of market-wide coverage — 3 BDCs and one measured quarter only.
-Measured set. One common quarter-end across all 3 BDCs (MEASURED_PERIOD_END, set once in .env and read by both the pipeline and the API) is the measured set. Tuning labels, held-out labels, band sizes and every reported metric come from candidate pairs of that quarter only. block.py and match.py run only for MEASURED_PERIOD_END. If a second quarter is ingested, its rows may be ingested and normalized, but they produce no candidate pairs, no facilities and no label samples, and they carry no cross-quarter claim: nothing links a holding across quarters and no metric covers that quarter. Cross-period linking is a new, unmeasured step and is listed as future work (§14).
+Purpose of the output (v2). After a facility is flagged the analyst decides in three steps, and each v2 feature answers one: Triage ranks flagged facilities by dollars at stake (F1, committed); Evidence shows the filing facts that sit next to the gap (F2, committed); History shows whether the gap was already there last quarter (F3, gated, section 12.11). Nothing here is a model, a score with weights or an LLM output.
+Non-claims (state explicitly in the README): not a reconstruction of Apollo's internal valuation process; not a claim that ICE IDs are being reverse-engineered; not a claim of market-wide coverage — 3 BDCs and one measured quarter only. History shows the prior-quarter marks of the same positions. It is not a trend and not a measured matching result.
+Measured set. One common quarter-end across all 3 BDCs (MEASURED_PERIOD_END, set once in .env and read by both the pipeline and the API) is the measured set. Tuning labels, held-out labels, band sizes and every reported metric come from candidate pairs of that quarter only. block.py and match.py run only for MEASURED_PERIOD_END. If a second quarter is ingested, its rows may be ingested and normalized, but they produce no candidate pairs, no facilities and no label samples, and they carry no cross-quarter claim: cross-lender matching on that quarter is not done and no metric covers it. A prior quarter is normalized as history only: the within-BDC history link (F3, if built, §12.11) reads the prior marks of positions already matched on the measured quarter. Cross-lender matching on any other quarter is a new, unmeasured step and is listed as future work (§14). 2026-03-31 is ingested and normalized for all three BDCs (ADS 790 rows, HPS 806, ORCIC 526) and is not matched; the matching run on it, if any, is a Day 8 item decided with the freeze, and needs a period parameter (section 18, Day 8 checklist).
 
 3. The Application
 3.1 Actors
@@ -17,14 +18,15 @@ Analyst (end user): searches borrowers, views facility-level cross-lender compar
 System: batch pipeline — ingest → normalize → block → score → classify → persist. No human in the automated path; humans only touch the review queue.
 3.2 What the User Sees — screen-by-screen
 Borrower Search — search box; result rows show canonical borrower name, period label, # lenders, # facilities.
-Facility Comparison (core screen) — header (borrower, period end, instrument type, reference rate, maturity bucket); table of one row per contributing BDC (name, total spread bps, fair value % of par, principal, source filing URL); divergence banner (AGREEMENT/MILD/FLAGGED) with the actual point spread shown. There is no period selector: a facility belongs to one period. Every facility has at least 2 lenders with a usable mark; holdings excluded for missing, zero or non-USD principal, or an unfunded commitment, appear only as a count in a note.
+Facility Comparison (core screen) — header (borrower, period end, instrument type, reference rate, maturity bucket); table of one row per contributing BDC (name, total spread bps, fair value % of par, principal, source filing URL); divergence banner (AGREEMENT/MILD/FLAGGED) with the actual point spread shown. There is no period selector: a facility belongs to one period. Every facility has at least 2 lenders with a usable mark; holdings excluded for missing, zero or non-USD principal, or an unfunded commitment, appear only as a count in a note. v2 adds an exposure line ("Ranking key, not an estimate of loss."), an Evidence panel (cost % of par, fair value % of cost, spread, floor, PIK, maturity and non-accrual per lender, cells that differ across lenders marked with text, signal chips) and, if F3 is built, a History strip (prior to current mark per lender and the persistence label).
+Triage (the Facilities page; the nav label is Triage and the route stays /facilities) — default view: FLAGGED facilities sorted by exposure; a toggle shows all facilities. Each card shows borrower, instrument type, divergence flag with points, exposure in USD, signal count and, if F3 is built, a persistence tag. The flag and the points stay visible: dollars never replace them.
 Review Queue — one row per candidate pair awaiting a decision (see §6 candidate_pairs): raw names side by side, score, instrument type, maturity, spread. Actions: Confirm Match / Reject / Skip. Review clusters (two holdings from one BDC landing in the same cluster) get their own card listing the holdings and the AUTO or CONFIRMED pairs that formed it, each with a Reject action; resolving a cluster means rejecting a pair and re-running compare.py. Decisions apply only after the next compare.py run.
 Metrics / Evaluation — AUTO-only precision (headline) and REVIEW band precision, each with a Wilson interval and an UNSURE range (UNSURE as NO_MATCH and as MATCH); optional precision if REVIEW pairs were auto-accepted, labeled exactly that; recall given blocking with a bootstrap interval; blocking recall from the independent 30-holding check (§12.5); raw UNSURE count; divergence sensitivity table (1/2/5pt); coverage counts. Anything not yet computed reads "Not yet measured".
 3.3 What Is Deliberately Out of Scope
-Real-time ingestion; Kafka/Spark; full market coverage (~40–50 public BDCs); more than one measured quarter; cross-period facility linking and any cross-quarter claim; equity and unfunded-commitment positions; authentication/user accounts; Spring Boot.
+Real-time ingestion; Kafka/Spark; full market coverage (~40–50 public BDCs); more than one measured quarter; cross-lender matching on any quarter other than the measured one, and any trend claim (within-BDC history links are in scope only if F3 passes its gate); equity and unfunded-commitment positions; authentication/user accounts; Spring Boot.
 3.4 Frontend Build Priority
-Borrower Search → Facility Comparison → Review Queue → Metrics. A reviewer looks, in order: is the data real and sourced (source URLs), is the matching claim measured (metrics), is ambiguity handled honestly (review queue), does it look finished (comparison view polish, last).
-After the core four, and the first things cut: the Overview, Facilities and Filings pages (E1, E4, E10) and the optional landing page. The labeling page (E11, E12) is separate: it is required for the evaluation, so it is built on Day 6, but it is dev-only and unstyled beyond what labeling needs.
+Borrower Search → Facility Comparison → Triage → Review Queue → Metrics. A reviewer looks, in order: is the data real and sourced (source URLs), is the matching claim measured (metrics), is ambiguity handled honestly (review queue), does it look finished (comparison view polish, last).
+After the core four, and the first things cut: the Overview and Filings pages (E1, E10) and the optional landing page. Triage (the Facilities page, E4) is not cuttable. The labeling page (E11, E12) is separate: it is required for the evaluation, so it is built on Day 6, but it is dev-only and unstyled beyond what labeling needs.
 
 4. Technologies and Tech Stack
 4.1 Stack
@@ -121,7 +123,8 @@ SEC EDGAR (Inline XBRL filings)
 Facilities are built from AUTO-scored pairs plus CONFIRMED pairs via connected-components clustering on the pair graph, with these constraints (required, not optional — naive connected components will merge wrongly otherwise):
 Only pairs from different BDCs are ever scored or clustered. Two holdings from the same filing/BDC must never merge — a borrower's term loan and revolver in one BDC's own schedule are distinct facilities, never variants of "the same" cross-lender match.
 REJECTED pairs are cannot-link constraints, not just ignored edges — if A–B is REJECTED, no clustering path may merge A and B even transitively through some C. Process edges CONFIRMED first, then by descending score (ties by ascending holding ids), and skip any edge whose union would join a cannot-link pair, logging each skip.
-If a resulting cluster contains two holdings from the same BDC, route the whole cluster to the review queue instead of forming a facility — this catches A–B and B–C each being individually valid while A–B–C together implies an invalid same-BDC merge.
+If a resulting cluster contains two holdings with a non-null fair_value_pct_par from the same BDC, route the whole cluster to the review queue instead of forming a facility — this catches A–B and B–C each being individually valid while A–B–C together implies an invalid same-BDC merge.
+Holdings with an excluded_reason have no mark, so they do not count for this test. They stay in the cluster, in facility_comparisons with their reason, and in excludedCount, and they are members of any review cluster. The 2-mark facility test below is unchanged.
 What compare.py builds, in order (a full deterministic rebuild in one transaction, so the API never sees partial state):
 Cluster AUTO plus CONFIRMED pairs under the three constraints above. Clusters with a same-BDC collision go to review_clusters, not to facilities.
 A cluster becomes a facility only if at least 2 of its holdings have a non-null fair_value_pct_par. Holdings with a null value stay in facility_comparisons, flagged excluded, and are counted in excluded_count. A cluster that fails this test is not a facility. This is what guarantees every facility has lender_count >= 2, so a facility with fewer than 2 lenders is a data error and never a UI state.
@@ -129,7 +132,11 @@ Name each cluster by the most frequent borrower_normalized among all its holding
 Group facilities into borrowers by exact equality of that cluster name within one period. A borrower with a single facility is still its own borrower. Two clusters of the same real borrower that normalize differently become two borrowers. This step is not covered by the labeled evaluation: list it as an unmeasured step in the limitations and never fold it into matcher precision.
 Facility attributes: instrument_type_norm is shared by construction (blocking requires an exact match). reference_rate is the most frequent member value (ties ascending). maturity_bucket is the earliest member maturity (default).
 Divergence per facility is max minus min fair_value_pct_par over included holdings, in points of par (§12.8).
-A facility belongs to exactly one period, because pairs are only scored within one period end and nothing links a holding across periods. Borrower, facility and cluster IDs are regenerated on every rebuild: stable across page loads, not across a compare.py run.
+7. (v2) Fill the added facility_comparisons columns from normalized_holdings: cost, cost as % of par, fair value as % of cost, floor, PIK, maturity, non-accrual. One set-based INSERT ... SELECT.
+8. (v2) Compute exposure_usd = (divergence_pts / 100) * MIN(principal over included holdings) and signal_codes per facility, with SQL aggregates and the evidence: config values (§12.10).
+9. (F3, if built) Read holding_history_links and write facility_history with the persistence label (§12.11). link_history.py runs before compare.py, reads only normalized_holdings and never reads matcher output.
+Current provisional live build (matcher not frozen, rebuilt on Day 9 on the frozen matcher): 283 AUTO pairs gave 119 clusters: 19 same-BDC collision clusters (85 holdings), 7 clusters that failed the 2-mark test and 93 facilities (248 holdings, 85 borrowers). Divergence: AGREEMENT 72, MILD 9, FLAGGED 12. 51 excluded holdings sit inside facilities (UNFUNDED_COMMITMENT 44, NON_USD_PRINCIPAL 7).
+A facility belongs to exactly one period, because pairs are only scored within one period end and nothing links a holding across periods. Borrower, facility and cluster IDs are regenerated on every rebuild: stable across page loads, not across a compare.py run. The v2 history link (F3) reads the same BDC's holding one quarter earlier; it never links holdings across BDCs.
 Idempotency: raw_filings.accession_number is UNIQUE — re-ingesting an already-loaded filing is a no-op (tested, §13 #6).
 
 6. Database Schema
@@ -185,7 +192,8 @@ CREATE TABLE normalized_holdings (
   footnotes              TEXT,              -- independent labeling evidence
   source_url             TEXT NOT NULL,
   non_accrual            BOOLEAN NOT NULL DEFAULT FALSE,   -- footnote matches the filer's non-accrual pattern; the row stays in; added Day 5 (migration 007)
-  excluded_reason        TEXT                -- NULL | EQUITY_POSITION | ZERO_OR_NULL_PRINCIPAL | UNFUNDED_COMMITMENT | NON_USD_PRINCIPAL | NULL_FAIR_VALUE; one reason per row, first match wins in this order; added Day 5 (migration 007)
+  excluded_reason        TEXT,               -- NULL | EQUITY_POSITION | ZERO_OR_NULL_PRINCIPAL | UNFUNDED_COMMITMENT | NON_USD_PRINCIPAL or CURRENCY_UNKNOWN (one slot) | NULL_FAIR_VALUE; one reason per row, first match wins in this order; added Day 5 (migration 007)
+  currency_source        TEXT                -- NULL where the principal unit decides; reference_code | html_symbol | period_link | unknown where the unit tag is missing (currency ladder below); added Day 6 (migration 008)
 );
 
 CREATE TABLE blocking_keys (
@@ -242,7 +250,7 @@ CREATE TABLE facility_comparisons (
   spread_bps_total    NUMERIC,                -- copy of normalized_holdings.spread_bps, already includes PIK; never add pik_bps
   principal           NUMERIC,
   fair_value_pct_par  NUMERIC,                -- NULL when excluded
-  excluded_reason     TEXT,                   -- NULL | ZERO_OR_NULL_PRINCIPAL | NULL_FAIR_VALUE | NON_USD_PRINCIPAL | UNFUNDED_COMMITMENT
+  excluded_reason     TEXT,                   -- NULL | ZERO_OR_NULL_PRINCIPAL | NULL_FAIR_VALUE | NON_USD_PRINCIPAL | UNFUNDED_COMMITMENT | CURRENCY_UNKNOWN
   source_url          TEXT NOT NULL,
   PRIMARY KEY (facility_id, holding_id)
 );
@@ -331,7 +339,28 @@ CREATE TABLE metric_results (
 );
 
 Guard, mandatory: fair_value_pct_par computation must check principal IS NOT NULL AND principal != 0 AND principal_currency = 'USD' and the row is not flagged by the filer's unfunded-commitment footnote pattern (configured per filer) before dividing; otherwise store NULL and exclude the row from comparisons (never silently produce Infinity/error).
-excluded_reason precedence: one reason per row, first match wins, in this order: EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL, NULL_FAIR_VALUE. A row with a reason is kept in normalized_holdings with a NULL fair_value_pct_par; it is not skipped.
+excluded_reason precedence: one reason per row, first match wins, in this order: EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL or CURRENCY_UNKNOWN, NULL_FAIR_VALUE. NON_USD_PRINCIPAL and CURRENCY_UNKNOWN share one slot: NON_USD_PRINCIPAL when the currency is known and is not USD, CURRENCY_UNKNOWN when it cannot be determined. The slot is applied in normalize.py; normalization.excluded_reason_order in config.yaml is changed to name CURRENCY_UNKNOWN on Day 8 before the matcher hash exists (section 18). A row with a reason is kept in normalized_holdings with a NULL fair_value_pct_par; it is not skipped.
+Currency ladder (pipeline/currency.py, migration 008). Where a principal unit exists it decides the currency and nothing else runs (all of 2026-06-30, ADS and ORCIC, and 114 HPS 2026-03-31 rows); the unit on cost and fair value is still ignored. HPS 2026-03-31 tags 729 principal amounts as a 'shares' fact, so a row with a principal and no unit goes down a ladder, first hit wins, and the rung is recorded in normalized_holdings.currency_source: (a) html_symbol, a currency symbol or code in the HTML principal cell; (b) reference_code, a reference-rate code that maps to one currency, with the map built only from 2026-06-30 HPS rows that have a unit, using codes where every row agrees and there are at least 5 rows; (c) period_link, an exact within-BDC link to a unique 2026-06-30 holding (same borrower_normalized, instrument description, maturity and reference code, unique on both sides) inheriting its unit; (d) unknown, giving CURRENCY_UNKNOWN. A rung is used only with agreement of at least 99% on at least 30 validation rows, a bar fixed before the numbers were seen. Validation: (a) 12 rows (7 "$", 3 SEK, 2 NOK), 12 agree, below 30 rows, disabled. (b) 612 of 612 agree on 2026-06-30 HPS, and 86 of 86 out of sample on 2026-03-31 HPS rows that have a unit, enabled; map SF to USD (524 rows), E to EUR (41), SN to GBP (25), B to AUD (10), C to CAD (7), P to USD (5). (c) ADS 449 of 471 (95.33%), ORCIC 398 of 406 (98.03%), together 847 of 877 (96.58%), below 99%, disabled. config.yaml (filers.hps.currency_ladder) enables rung (b) only. Result on HPS 2026-03-31 (806 rows): 510 rows set by rung (b), all USD; 144 stay unknown, all with no reference code, of which 123 are UNFUNDED_COMMITMENT and 21 are CURRENCY_UNKNOWN; rows with a % of par went from 5 to 433.
+v2 schema additions (not built yet; migration numbers 009 and 010, because 007 is the normalized flags and 008 is currency_source). normalized_holdings.non_accrual already exists (migration 007).
+-- migration 009 (F1 and F2)
+ALTER TABLE facility_comparisons
+  ADD COLUMN cost           NUMERIC,
+  ADD COLUMN cost_pct_par   NUMERIC,   -- NULL unless fair_value_pct_par is non-null
+  ADD COLUMN fv_pct_cost    NUMERIC,
+  ADD COLUMN floor_bps      NUMERIC,
+  ADD COLUMN pik_bps        NUMERIC,
+  ADD COLUMN maturity_date  DATE,
+  ADD COLUMN non_accrual    BOOLEAN;
+ALTER TABLE facility_summary
+  ADD COLUMN exposure_usd   NUMERIC NOT NULL DEFAULT 0 CHECK (exposure_usd >= 0),   -- DEFAULT 0 because the curated tables are not empty (93 facilities); compare.py rewrites every row
+  ADD COLUMN signal_codes   TEXT[]  NOT NULL DEFAULT '{}';
+CREATE INDEX idx_fs_exposure ON facility_summary (exposure_usd DESC, facility_id);
+CREATE INDEX idx_fs_flag     ON facility_summary (divergence_flag);
+-- migration 010 (F3 only)
+CREATE TABLE holding_history_links (holding_id INT PRIMARY KEY REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL UNIQUE REFERENCES normalized_holdings(holding_id), link_rule TEXT NOT NULL);   -- EXACT_KEY | EXACT_MATURITY
+CREATE TABLE facility_history (facility_id INT PRIMARY KEY REFERENCES canonical_facilities(facility_id), prior_period_end DATE NOT NULL, prior_lender_count INT NOT NULL CHECK (prior_lender_count >= 2), prior_divergence_pts NUMERIC NOT NULL, prior_divergence_flag TEXT NOT NULL, persistence TEXT NOT NULL);   -- WIDENED | NARROWED | CLOSED | STABLE
+CREATE TABLE history_link_checks (check_id SERIAL PRIMARY KEY, holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), label TEXT NOT NULL, labeled_by TEXT NOT NULL, checked_at TIMESTAMPTZ DEFAULT now());   -- hand check, MATCH | NO_MATCH | UNSURE
+Facilities without a row in facility_history are NO_PRIOR, derived by absence. The addendum assumed the curated tables were empty (so NOT NULL without a default was safe); they hold 93 facilities, so exposure_usd has DEFAULT 0 (recorded in DECISIONS.md).
 
 7. API Contract
 The API contract (E1 to E12, response shapes, error format, null rule, write rules) lives in CONTRACT.md and nowhere else. Do not copy shapes into this file. Test 12 and the shape tests in §13 check against CONTRACT.md.
@@ -344,7 +373,7 @@ Real messy data engineering + a classic hard CS problem (entity resolution) solv
 
 10. Features
 10.1 MVP (must ship)
-Ingest 3 BDCs for one measured quarter (a second quarter may be ingested and normalized, but block.py and match.py run only for MEASURED_PERIOD_END, so it produces no candidate pairs, facilities or label samples), same-period-end filter. Normalize → block → rapidfuzz score → candidate_pairs with AUTO/REVIEW/NO_MATCH. Facility-level comparison, % of par, null/zero-principal guarded. Divergence classification with the 1/2/5pt sensitivity table. Review queue (pairs: Confirm/Reject on candidate_pairs; clusters: Reject on their constituent pairs). Source URL on every displayed row. Docker Compose one-command start. CI running all tests.
+Ingest 3 BDCs for one measured quarter (a second quarter may be ingested and normalized, but block.py and match.py run only for MEASURED_PERIOD_END, so it produces no candidate pairs, facilities or label samples), same-period-end filter. Normalize → block → rapidfuzz score → candidate_pairs with AUTO/REVIEW/NO_MATCH. Facility-level comparison, % of par, null/zero-principal guarded. Divergence classification with the 1/2/5pt sensitivity table. Review queue (pairs: Confirm/Reject on candidate_pairs; clusters: Reject on their constituent pairs). Source URL on every displayed row. Docker Compose one-command start. CI running all tests. v2 adds the exposure ranking (Triage) and the evidence dossier. F3 history is under 10.3 until its gate passes.
 10.2 Core (don't skip for polish)
 Label using independent evidence (industry match, footnote text, borrower name in other filings, public credit agreement exhibit if any) plus attributes — never attributes alone. Principal size proximity is dropped as evidence (BDCs legitimately hold different slices of the same syndicated loan, so it's noise, not signal). A MATCH requires at least one independent signal in addition to name/maturity/spread; otherwise label UNSURE (§12.2).
 Use UNSURE freely. Report precision/recall twice — once treating UNSURE as NO_MATCH, once as MATCH — plus the raw UNSURE count, in /api/metrics and the README (§12.3). Don't report only the excluded-UNSURE version.
@@ -354,6 +383,7 @@ DECISIONS.md including the (non-circular) labeling approach and the score-band s
 Schema-drift fixture test per filer.
 10.3 Stretch (buffer time only)
 Splink benchmark, same input features as rapidfuzz — fair comparison. State in the README whether built.
+F3 history and persistence (v2, gated). Built only if the Day 9 gate passes (§18, §12.11): the same position one quarter earlier in the same BDC, its prior mark and a persistence label. If it is not built, the README does not mention history.
 
 11. Edge Cases to Handle
 Case
@@ -407,6 +437,21 @@ Not materialized as a facility; compare.py logs it
 Same real borrower, names normalize differently
 "Acme Holdings" vs "Acme Holdco"
 Two borrowers. Unmeasured step, stated in limitations
+Dossier field not disclosed
+ORCIC floor (no floor data in any form), or a rate string with no PIK
+Row-level null means not disclosed: the UI shows "Not disclosed" and the field is never filled in or defaulted. Aggregates keep "Not yet measured"
+Ambiguous within-BDC link (F3)
+Two prior holdings with the same key and maturity, or equal key but unequal known principal currency
+Left unlinked and counted, never guessed
+Prior holding with a null mark (F3)
+The linked prior holding has fair_value_pct_par NULL
+Not used for the prior divergence; fewer than 2 prior marks gives NO_PRIOR
+Prior quarter normalized but never blocked
+2026-03-31 rows in normalized_holdings
+No blocking_keys, candidate_pairs, facility or label_samples row for it (test 35)
+Fixed against floating reference rate
+ADS erc: FIXED 7.50%, HPS erc: SOFR + 6.50% PIK, in one facility
+Kept in the facility; the RATE_TYPE_DIFFERS signal is shown. Evidence only, the matcher is not changed
 
 
 12. Labeling — Non-Circular Design (read before labeling a single pair)
@@ -470,6 +515,20 @@ Report-only: the numbers go to docs/data_report.md and the README. Never to the 
 Never retune blocking after the Day 8 freeze to improve them. A blocking change invalidates the held-out set (§12.6).
 The data is small (3 BDCs, one quarter). These numbers show the mechanism, not scale. Say so.
 A resume bracket for them ([R], [B]) stays empty until measured.
+12.10 Exposure, evidence dossier and signals (v2, descriptive, report-only)
+Exposure. exposure_usd = (divergence_pts / 100) * MIN(principal over included holdings). Included holdings already have a non-null, nonzero, USD principal, because fair_value_pct_par is non-null only then, so no new guard is needed. MIN, not SUM or MAX, because lenders hold different slices of one syndicated loan: it is the gap in points applied to the smallest position being compared. It is a ranking key, not an estimate of loss, and the page says so. Rank: exposure_usd descending, then divergence_pts descending, then facility_id ascending. The flag and the points stay visible. No weights, no new config values. NUMERIC in SQL and Decimal in Python.
+Dossier per lender row, from data already parsed: cost, cost as % of par, fair value as % of cost, total spread, PIK bps, floor bps, maturity date, non-accrual, source link. Row-level null means not disclosed in the filing and shows "Not disclosed"; it is never filled in. Total spread is cash plus PIK; cash spread is spread minus PIK.
+Signals, computed once in compare.py and stored as codes in facility_summary.signal_codes: NON_ACCRUAL (any included holding is non-accrual); PIK_DIFFERS (pik_bps differs, any difference); FLOOR_DIFFERS (floor differs by at least 25 bps); SPREAD_DIFFERS (total spread differs by at least 25 bps); MATURITY_DIFFERS (maturity dates differ by at least 31 days); COST_BASIS_GAP (cost % of par differs by at least divergence.mild_pts, 1.0); RATE_TYPE_DIFFERS (included holdings include a FIXED reference rate and at least one non-null floating reference rate; NULL reference rates are ignored).
+Why these defaults: 25 bps is half the 50 bps blocking window, 31 days is one month because ORCIC maturity is a stored month end, the cost gap reuses the existing 1.0 point cutoff. They go in config.yaml under evidence: and are not tuned to make a result look better. RATE_TYPE_DIFFERS is evidence only and changes no matcher file or threshold. Basis for adding it: on the live Q2 data 3 of 283 AUTO pairs mix FIXED and floating reference rates and 2 of 93 facilities do (erc and medallia), and erc is also the largest divergence (64.1473 points, ADS FIXED 7.50% against HPS SOFR + 6.50% PIK).
+Wording is always "signals present", never "explained by" or "caused by". Reported results, all descriptive and report-only (never in metric_results, never read from candidate_pairs.status): (1) signal lift table, for each signal the share of FLAGGED facilities that carry it against the share of AGREEMENT facilities, with both n; (2) unexplained share, FLAGGED facilities with no signal; (3) field coverage, for each field and each BDC the share of compared holdings where it was parsed.
+Freeze interaction. normalize.py is a hashed file, so non-accrual detection and rate parsing land before the Day 8 freeze (non-accrual is done, migration 007). compare.py, link_history.py and the evidence: config section are not in freeze.hashed_files (config.yaml lists normalize.py, block.py and match.py only); changing them after the freeze does not invalidate the held-out set. A prior quarter must be ingested and normalized before the freeze, because normalize refuses to run afterward: 2026-03-31 is done for all three BDCs. block.py and match.py run for MEASURED_PERIOD_END only (set in .env), so prior-quarter rows never become candidate pairs or label samples (test 35).
+12.11 History link and persistence (F3, gated, report-only)
+Matches are decided once, on the measured quarter. For each holding in a facility the link finds the same holding in the same BDC one quarter earlier and reads its prior mark; the prior divergence is max minus min over those prior marks. The only new unmeasured step is this within-BDC link, which is far easier than cross-lender matching and gets its own hand check.
+Link rule (link_history.py, deterministic, set-based SQL, full rebuild, reads only normalized_holdings): key (bdc_cik, borrower_normalized, instrument_type_norm). If exactly one current and one prior holding share the key, link them (link_rule EXACT_KEY). If several share the key, link only where maturity dates are equal and the pairing is one to one (EXACT_MATURITY). When both holdings have a principal currency (principal_currency not null), the currencies must be equal, otherwise the pair stays unlinked and is counted. Anything ambiguous stays unlinked, never guessed, and its count is logged. A prior holding links to at most one current holding. The link method is stored in link_rule and reported with the linked share.
+Measured limit on link risk: the 2026-03-31 to 2026-06-30 exact-field link on borrower_normalized, instrument description, maturity and reference code, unique on both sides, agreed on currency for 95.33% of links for ADS (n 471) and 98.03% for ORCIC (n 406). F3's key differs (it uses instrument_type_norm and adds the unit check), so these numbers show that exact-field links can be wrong, not the accuracy of the F3 link, which comes from the hand check. 2026-03-31 is ingested for all three BDCs (ADS 790 rows, HPS 806, ORCIC 526) but is not matched; of the HPS rows only 433 have a % of par on 2026-03-31, so prior marks are limited for HPS.
+Persistence label, using the existing cutoffs and no new constants. delta = current divergence minus prior divergence, dead band = divergence.mild_pts (1.0). In order: NO_PRIOR (fewer than 2 facility holdings have a linked prior mark); CLOSED (current flag is AGREEMENT and the prior flag was not); WIDENED (delta >= dead band); NARROWED (delta <= minus dead band); STABLE (otherwise). You can say "this gap was also present last quarter" or "it was not"; you cannot say "this is a trend". Two points are not a trend.
+Hand-checked sets (not a second 200 pair study, because these are deterministic extraction and a simple join): dossier accuracy, 30 holdings, 10 per BDC, every field compared with the SEC page, reported as a correct count per field with n; exposure arithmetic, 5 facilities with a calculator, pass or fail; within-BDC link check (F3), 30 links, 10 per BDC, labeled with evidence not in the link key (industry, footnote text, the raw row) and UNSURE when only the key agrees, as in §12.2, reported with a Wilson interval and the UNSURE range. The link check is recorded in history_link_checks.
+F3 gate, at the end of Day 9: the Q2 pipeline, E1 to E9 and the dossier are done and the held-out evaluation is finished. If not, F3 goes to future work in the README. Kill criteria: no 2026-03-31 filing with the same structure, fewer than about half of facilities with two linked prior marks (report the linked share and ship F3 as limited, or drop it), or Day 9 gates missed. Dropping F3 costs nothing already built except the prior-quarter ingest.
 
 13. Test Cases to Pass
 #
@@ -580,10 +639,58 @@ Freeze enforcement
 Second quarter
 Ingest and normalize a non-measured quarter, then run block.py and match.py
 No blocking_keys row and no candidate_pairs row for it, so no facility and no label_samples row either
+27
+Exposure formula
+Two-lender and three-lender facilities, Decimal
+exposure_usd = divergence_pts / 100 * MIN(principal over included holdings)
+28
+Exposure ordering
+Ties on exposure; compare.py run twice
+Sorted by exposure, then divergence_pts descending, then facility_id ascending; both runs identical
+29
+Signal boundaries
+Each code just below and at its threshold (24 and 25 bps, 30 and 31 days, 0.99 and 1.0 points); FIXED against floating, FIXED against FIXED, FIXED against NULL
+Each signal fires at its threshold and not below; RATE_TYPE_DIFFERS fires only for FIXED against a non-null floating rate
+30
+Non-accrual pattern
+One fixture per filer
+non_accrual set only where the filing text matches the filer's pattern
+31
+E4 parameters
+Valid and invalid flag and sort values
+Valid values work; invalid values return 400; the default order is unchanged
+32
+E5 additions
+Any facility, including a dossier null
+Shape matches CONTRACT.md; a dossier null renders as not disclosed; spreadBps is still total spread; signals use the 7 codes
+33
+Link rule (F3)
+Unique key; ambiguous key; equal key with unequal known principal currency
+Unique key links with link_rule EXACT_KEY; ambiguous stays unlinked; unequal known currency stays unlinked and is counted; a prior holding links to at most one current holding
+34
+Persistence (F3)
+Deltas 0.99, 1.0 and minus 1.0; CLOSED case; fewer than 2 prior marks
+STABLE, WIDENED, NARROWED; CLOSED takes precedence; NO_PRIOR for fewer than 2 prior marks
+35
+Prior quarter isolation (F3)
+2026-03-31 rows normalized, block.py and match.py run
+No blocking_keys, candidate_pairs, facility or label_samples row from the prior quarter
+36
+History null versus NO_PRIOR
+F3 not built; F3 built without prior marks
+history is null when F3 is not built; NO_PRIOR when F3 is built and the facility lacks two linked prior marks
+37
+Determinism
+compare.py twice
+Identical exposure_usd, signal_codes and facility_history
+38
+E9 live fields
+Before evaluate.py; then flip candidate_pairs.status
+evidenceLift and fieldCoverage appear before evaluate.py; flipping statuses changes nothing
 
 
 14. Scaling Plan (ideation only, not built)
-Full ~40–50 public BDC coverage; full historical quarter depth; incremental/near-real-time ingestion on new filing detection; cross-period facility linking (following a facility across quarters), which is a new unmeasured step and needs its own labeled evaluation; stable IDs across rebuilds; partitioning blocking, scoring and comparison work by block key across workers, since blocks are independent. The README's "If this ran at scale" section is built from this list and is marked as ideation, not built.
+Full ~40–50 public BDC coverage; full historical quarter depth; incremental/near-real-time ingestion on new filing detection; cross-period facility linking, partly built as the within-BDC history link (F3, if built: the same position one quarter earlier, hand checked on 30 links), while cross-lender matching on any other quarter stays future work as a new unmeasured step that needs its own labeled evaluation; stable IDs across rebuilds; partitioning blocking, scoring and comparison work by block key across workers, since blocks are independent. The README's "If this ran at scale" section is built from this list and is marked as ideation, not built.
 
 15. Design Decisions You Must Be Able to Defend
 Forced: staged matching pipeline; facility-level, %-of-par comparison (null/zero-guarded); raw/staged/curated layering; source URL + review queue; same-period-end hard filter.
@@ -600,6 +707,9 @@ Borrower grouping by exact normalized-name equality → deliberately simple and 
 Precision reporting: AUTO-only headline plus the REVIEW band's own precision, no review-confirmed figure → a confirmation is a UI click made with the score visible, so including it would make the number circular.
 Blocking efficiency is report-only → pairs avoided is always shown next to blocking recall, never alone, and never used to retune blocking after the freeze (§12.9).
 The freeze is a recorded step, not a convention → config --freeze stores a hash of the matcher (the config sections plus the matcher source files) in matcher_freeze. The matcher scripts refuse to run while it exists, and the held-out draw and evaluate.py refuse if the hash has changed, so an edit between the freeze and the draw cannot slip through.
+Exposure uses MIN principal → lenders hold different slices of one loan, so the smallest compared position is the conservative size; it is a ranking key, not a loss estimate, and the points stay visible (§12.10).
+Signal thresholds (25 bps, 31 days, 1.0 point) → defaults, never tuned, reported as signals present with a descriptive lift table, never as causes (§12.10).
+History without re-matching → matches are decided once on the measured quarter; the only new step is a within-BDC link of the same position, which is hand checked on 30 links and is not a trend claim (§12.11).
 
 16. How to Present on Your Resume
 16.1 Bullet variants (pick one per application, never merge them)
@@ -614,6 +724,7 @@ Quote AUTO-only precision plus the REVIEW band's precision, and never a figure t
 [N] is the test count from the CI run, not the number of rows in the §13 table.
 Never imply Splink results if not built. Never state market-wide coverage. Never claim Java or Spring Boot experience this project does not contain.
 The ICE anchor-partner sentence belongs to the Apollo pitch and cover letter only. It is not part of variants B or C.
+Quote a v2 number only if it was measured, for example "of N flagged facilities, X had at least one disclosed signal and Y did not", with the per-field parse coverage. Never say the signals cause the gap. Never claim the dossier layout was validated with analysts: it is designed around the analyst's decision. If F3 is not built, do not mention history.
 16.3 Other Places to Show It
 GitHub README (evaluation section first); demo video and screenshots; for Apollo only, a cover-letter mention tied to the ICE anchor-partner fact, framed as independently verified.
 
@@ -739,6 +850,23 @@ README (checklist §20.3, including the glossary, the "If this ran at scale" sec
 Buffer: absorbs Day 4/5 slippage first; 30-holding blocking-recall check if not done Day 9; Splink only if still on schedule
 Only one buffer day now
 
+v2 additions (F1 to F3), added to the plan above. Estimates are planning numbers, not measurements.
+Day 4 (+0.25): adapters output spread, floor and PIK columns; the non-accrual footnote pattern per filer in config. Done, as migration 007 on Day 5 and the Day 4 adapters.
+Day 5 (+0.5, gated): normalize carries non_accrual; ingest and normalize the prior quarter; restrict block and match to the measured period. Done: 2026-03-31 ingested and normalized for all three BDCs, block and match not run on it.
+Day 7 (+0.25): compare.py writes exposure_usd; E4 gets the new fields and parameters (F1).
+Day 9 (+0.75): signals and dossier columns in compare.py, E5 additions, tests 27 to 32, 37 and 38, the dossier accuracy check (F1, F2).
+Day 10 (+0.75, minus 0.5): Triage view, Evidence panel, new Metrics cards; drop Overview and Filings polish; measure latency (target under 50 ms server time and under 100 KB per response for E4 and E5, report-only, with the machine spec) (F1, F2).
+Day 11 (+0.25): README and DECISIONS additions.
+Day 12 and after (+1.5): F3 decision at the Day 9 gate. If it passes: link_history.py, compare.py step 9, E4, E5 and E9 history fields, the History strip, the link check and tests 33 to 36.
+Totals: F1 and F2 add 2.25 build days, net 1.75 after cuts, 13 to 14 build days in all; with F3, 4.25 added, net 3.75, 15 to 16 build days. If behind: F1 first, then the dossier fields without the lift table, then the lift table; F3 is the first thing dropped.
+Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1 and F2) and 010 (F3).
+Day 8 checklist (v2), before python -m pipeline.config --freeze:
+1. Put CURRENCY_UNKNOWN into normalization.excluded_reason_order in config.yaml, at the NON_USD_PRINCIPAL slot, before the matcher hash exists (the section is hashed; the slot is applied in normalize.py today).
+2. The matcher hash must turn CRLF into LF before hashing, so the hash is the same on a Windows checkout and in CI.
+3. Add a period parameter to block.py and match.py for the out-of-time matching run on 2026-03-31, if that run is wanted. It is decided with the freeze. Default stays MEASURED_PERIOD_END and nothing from another period may reach candidate_pairs, label_samples or band_sizes without it.
+4. Add pipeline/currency.py to freeze.hashed_files: normalize.py imports it, and the list must include any helper module the hashed files import.
+5. Confirm compare.py, link_history.py and the evidence: section are not hashed.
+
 
 19. Interview Pitch and Q&A
 19.1 30-Second Pitch
@@ -829,8 +957,9 @@ README.md
 [ ] Five-line glossary for non-finance readers: BDC, syndicated loan, fair value, par, mark
 [ ] "If this ran at scale": partition blocking, scoring and comparison by block key across workers, incremental ingestion on new filings, stable IDs across rebuilds, cross-period linking as its own measured step (§14). Marked as ideation, not built.
 [ ] Data report (docs/data_report.md): rows parsed per filing; blocking efficiency (all_pairs, candidate_pairs, pairs avoided %) shown next to blocking recall; run times of block.py, match.py and compare.py with the machine spec (§12.9). Report only, never retuned.
+[ ] Evidence (v2): the signal lift table, the unexplained share and per-BDC field coverage; the line "signals present, not causes"; exposure is a ranking key, not an estimate of loss; the layout is designed around the analyst's decision and not validated with analysts; if F3 is built, the history limitation (two quarters are not a trend) and the link check with its interval; the currency ladder and the CURRENCY_UNKNOWN count.
 [ ] Honest note on Splink (built or skipped)
-[ ] Known limitations: 3 BDCs in one measured quarter (a second quarter is unmeasured and unlinked), one-person labeling, tranche/seniority caveats, blocking-recall caveat, borrower grouping is exact normalized-name equality and unmeasured (never part of matcher precision), IDs regenerate on every compare.py run, same-BDC collision clusters need manual resolution, labeling evidence from other filings uses the matcher's own normalizer (independent of scores and bands, not of normalization)
+[ ] Known limitations: 3 BDCs in one measured quarter (a second quarter, 2026-03-31, is ingested and normalized but not matched; history, if built, reads same-BDC prior marks only and is not a trend), one-person labeling, tranche/seniority caveats, blocking-recall caveat, borrower grouping is exact normalized-name equality and unmeasured (never part of matcher precision), IDs regenerate on every compare.py run, same-BDC collision clusters need manual resolution, labeling evidence from other filings uses the matcher's own normalizer (independent of scores and bands, not of normalization)
 [ ] Source filing URL convention
 [ ] How to run: docker compose up
 

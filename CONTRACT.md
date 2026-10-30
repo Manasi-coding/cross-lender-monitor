@@ -1,4 +1,5 @@
 Frozen on Day 3. Changes need a note in DECISIONS.md.
+v2 additions (Day 6 docs pass, listed in DECISIONS.md): every block marked [v2] below is additive. No existing field, query parameter, default order, error code or null rule changed. The [v2] fields are not built yet; until they are, the API returns the earlier shapes.
 CONTRACT.md: API contract, E1 to E12
 Single source of truth for endpoint shapes, conventions, errors and write rules. SPEC.md owns scope, schema, evaluation method, tests and schedule. This file owns the API. phase_wise.md and frontend.md carry only the endpoint index (ID, method, path, page), copied from the Endpoint list below so both plans name the same endpoints, and they link here for everything else. If an endpoint changes, change this file first, then the index in both plans.
 Reflects decisions A1 (one measured quarter, no period selector), A2 (exact-name borrower grouping), A8 (no review-confirmed metric) and the accepted fixes from the discrepancy review.
@@ -6,6 +7,7 @@ Conventions
 Base path /api. JSON, camelCase, dates as YYYY-MM-DD.
 fairValuePctPar and divergencePts are in points of par (98.5 means 98.5% of par, 3.2 means 3.2 points). Metric values and interval bounds are proportions in [0, 1].
 Null rule. A field that has not been computed yet is null. The UI renders null as "Not yet measured". There is no measured flag anywhere.
+[v2] Dossier null exception. Row-level dossier fields in E5 (costPctPar, fvPctCost, floorBps, pikBps, maturityDate, nonAccrual) use null to mean not disclosed in the filing, and the UI renders "Not disclosed". The null rule above still covers every aggregate and every field not yet computed ("Not yet measured"). This is a deliberate exception.
 Errors use an HTTP status plus { "error": { "code": string, "message": string } }. 400 bad input, 404 unknown id or route not mounted, 409 invalid status transition, 500 with code DATA_INTEGRITY when stored data breaks an invariant.
 Lists are unpaginated by design (3 BDCs, small result sets). Sort orders are fixed so responses are deterministic.
 All SQL is parameterized. search params are case-insensitive substring matches with wildcards escaped.
@@ -31,7 +33,7 @@ E3
 GET /api/borrowers/:id/facilities
 Borrower Detail
 E4
-GET /api/facilities?search=
+GET /api/facilities?search=&flag=&sort=
 Facilities
 E5
 GET /api/facilities/:id/comparison
@@ -66,6 +68,7 @@ E1 GET /api/overview
 All counts are integers. divergenceSplit holds facility counts, not percentages (the UI computes percentages). It is null until facility_summary has rows.
 pendingReviewCount is REVIEW pairs plus review clusters.
 measuredPeriodEnd lets the UI mark any row from another period as outside the measured set.
+[v2] E1 adds flaggedExposureUsd: Decimal | null, the sum of exposureUsd over FLAGGED facilities, null until facility_summary has rows. Same representation as principal in E5.
 E2 GET /api/borrowers?search=
 [ { canonicalBorrowerId, canonicalName, periodEnd, lenderCount, facilityCount } ]
 
@@ -81,6 +84,12 @@ E4 GET /api/facilities?search=
     spreadBps: { min, max }, maturityBucket, lenderCount } ]
 
 search matches borrowerName. spreadBps is the min and max total spread over included holdings. Sort: borrowerName, instrumentType ascending, then periodEnd descending.
+[v2] E4 adds fields to each item and two optional query parameters:
+    { ...existing, divergencePts, divergenceFlag, exposureUsd, signalCount, persistence }
+    signalCount is the length of the facility's signal codes. persistence is WIDENED | NARROWED | CLOSED | STABLE | NO_PRIOR, or null when F3 (history) is not built.
+    ?flag=AGREEMENT|MILD|FLAGGED   optional filter on divergenceFlag
+    ?sort=borrower|exposure        default borrower, so the existing order is unchanged. exposure sorts by exposureUsd descending, then divergencePts descending, then facilityId ascending.
+    An invalid flag or sort returns 400. No new endpoint, so the index in both plans changes only by the two parameters.
 E5 GET /api/facilities/:id/comparison
 { facilityId, borrowerName, periodEnd, instrumentType, referenceRate, maturityBucket,
   rows: [ { bdcName, spreadBps, fairValuePctPar, principal, sourceUrl } ],
@@ -90,6 +99,15 @@ No query parameters. A facility belongs to one period, so periodEnd is fixed in 
 rows holds included holdings only, sorted by bdcName. excludedCount counts holdings in this facility with no usable mark (null, zero or non-USD principal, an unfunded commitment, or null fair value).
 Every facility has at least 2 rows. compare.py only materializes a cluster as a facility when at least 2 of its holdings have a non-null fair_value_pct_par, and facility_summary.lender_count has a CHECK (lender_count >= 2). If the API ever finds fewer than 2 rows it returns 500 DATA_INTEGRITY, and the UI shows the generic error state. There is no "not enough lenders" screen.
 divergencePts is max minus min fairValuePctPar over rows. divergenceFlag is AGREEMENT, MILD or FLAGGED (SPEC section 12.8). Both are always non-null.
+[v2] E5 adds:
+    exposureUsd,
+    signals: [ "NON_ACCRUAL" | "PIK_DIFFERS" | "FLOOR_DIFFERS" | "SPREAD_DIFFERS" | "MATURITY_DIFFERS" | "COST_BASIS_GAP" | "RATE_TYPE_DIFFERS" ],
+    rows[]: + { costPctPar, fvPctCost, floorBps, pikBps, maturityDate, nonAccrual },
+    history: null | { priorPeriodEnd, persistence, priorDivergencePts | null, priorDivergenceFlag | null, rows: [ { bdcName, priorFairValuePctPar | null } ] }
+    spreadBps stays total spread (cash plus PIK); cash spread is spreadBps minus pikBps. exposureUsd = (divergencePts / 100) * MIN(principal over rows), a ranking key and not an estimate of loss. Decimal values use the same representation as principal.
+    signals are evidence that is present, not causes. RATE_TYPE_DIFFERS fires when rows include a FIXED reference rate and a non-null floating one.
+    history is null only when F3 is not built ("Not yet measured"). When F3 is built and the facility lacks two linked prior marks, persistence is NO_PRIOR.
+    excludedCount also counts holdings whose principal currency could not be determined (CURRENCY_UNKNOWN).
 E6 GET /api/review-queue
 [ pair | cluster ]
 
@@ -130,6 +148,11 @@ bands[].name is AUTO, REVIEW, JUST_BELOW or LOW. It reports matchRate, the match
 bands[].bandSize is the size of the band's sampling frame: measured-period candidate pairs minus the tuning pairs, at draw time. sampleSize is how many of them were drawn. The estimates describe that frame, so the tuning pairs are outside it.
 Formulas, weighting and interval methods are in SPEC section 12.6. Review-queue confirmations never enter any field: evaluate.py does not read candidate_pairs.status.
 thresholdPts is 1, 2 and 5. flaggedCount is the number of facilities with divergencePts >= thresholdPts.
+[v2] E9 adds three fields:
+    evidenceLift:  [ { code, flaggedShare, flaggedN, agreementShare, agreementN } ] | null    // live, from the curated tables
+    fieldCoverage: [ { field, bdcName, parsedShare, n } ] | null                              // live
+    historyLinks:  { priorPeriodEnd, linkedShare, precision: Range | null } | null            // F3; precision is null until the hand check is done
+    evidenceLift and fieldCoverage are computed live like sensitivityTable. None of these reads candidate_pairs.status.
 E10 GET /api/filings
 [ { bdcName, cik, formType, periodEnd, holdingsCount, sourceUrl } ]
 
@@ -160,3 +183,5 @@ E9: reshaped. precisionAutoPlusReview, precisionRange, recallRange, bootstrapCI,
 E10: no search parameter.
 E11, E12: pairId became sampleId. E11 fields are folded into holdingA and holdingB, and it gained progress. Both are flag-gated.
 
+
+v2 additive changes (Day 6 docs pass): conventions gain the dossier null exception; the E4 index entry gains the optional flag and sort parameters; E1 gains flaggedExposureUsd; E4 gains divergencePts, divergenceFlag, exposureUsd, signalCount, persistence and the two parameters (400 on invalid values); E5 gains exposureUsd, signals, five row fields, history and the CURRENCY_UNKNOWN note on excludedCount; E9 gains evidenceLift, fieldCoverage and historyLinks. Tests to update when built: 12 and 22 (E5 shape), the E4 and E9 shape tests, and the null rule test.

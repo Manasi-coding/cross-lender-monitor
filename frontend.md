@@ -6,6 +6,7 @@ Left sidebar for navigation (6 tabs). The top bar holds search and a theme toggl
 Any number taken from a filing links to its SEC source in one click. Aggregates, counts and metrics have no filing source, so they carry no link.
 UI text uses plain sentences and simple bullets. Avoid dashes in UI strings, and write ranges as "to".
 Null rule: any null from the API renders "Not yet measured". Never show a zero or a placeholder number in place of a null.
+(v2) Dossier exception: a row-level dossier field that is null in E5 (costPctPar, fvPctCost, floorBps, pikBps, maturityDate, nonAccrual) renders "Not disclosed", because it means the filing does not state it. Aggregates and fields not yet computed keep "Not yet measured". Never fill a dossier cell in. Cells that differ across lenders are marked with text, not color alone. Exposure always carries the words "Ranking key, not an estimate of loss."
 Color is never the only signal. Banners and tags always show their text label.
 Every row from a period other than measuredPeriodEnd (from E1) shows a tag, "Outside measured quarter". No metric covers those rows.
 No chart library. The one chart is an inline SVG dot plot.
@@ -26,7 +27,7 @@ E3
 GET /api/borrowers/:id/facilities
 Borrower Detail
 E4
-GET /api/facilities?search=
+GET /api/facilities?search=&flag=&sort=
 Facilities
 E5
 GET /api/facilities/:id/comparison
@@ -62,7 +63,7 @@ Writes: E7 and E8 update candidate_pairs.status. E12 writes labeled_pairs and is
 │ │            │                                             │
 │ │ Overview   │            PAGE CONTENT                     │
 │ │ Borrowers  │                                             │
-│ │ Facilities │                                             │
+│ │ Triage     │                                             │
 │ │ Review (n) │   (n = pendingReviewCount from E1)          │
 │ │ Metrics    │                                             │
 │ │ Filings    │                                             │
@@ -73,7 +74,7 @@ Writes: E7 and E8 update candidate_pairs.status. E12 writes labeled_pairs and is
 └────────────────────────────────────────────────────────────┘
 
 The shell loads E1 once and shares it through context: sidebar footer counts, the Review badge, and measuredPeriodEnd for the "Outside measured quarter" tag. Pages re-fetch E1 after a review action.
-Top bar search goes to /borrowers?search=<q> (E2). The placeholder says "Search borrowers" because it searches borrowers only. Facilities has its own search box.
+Top bar search goes to /borrowers?search=<q> (E2). The placeholder says "Search borrowers" because it searches borrowers only. Triage (the Facilities page) has its own search box. The nav label is Triage; the route stays /facilities and the sidebar stays at 6 tabs.
 One fetch wrapper in src/api/client.ts. Types in src/api/types.ts mirror CONTRACT.md (hand written, one file). The wrapper parses the error shape and exposes code and message.
 Every page uses the same four states: loading skeleton, error with retry, empty, data.
 4. Pages
@@ -100,6 +101,7 @@ Every page uses the same four states: loading skeleton, error with retry, empty,
 └─────────────────────────────────────────────────────────────┘
 
 Card links: BDCs opens /filings, Facilities opens /facilities, Pending Reviews opens /review, Divergence opens /metrics.
+(v2) One optional extra card shows flaggedExposureUsd from E1 as "Flagged exposure" with the words "Ranking key, not an estimate of loss." A null reads "Not yet measured". It is the first thing cut.
 Percentages are computed in the client from the E1 counts. If divergenceSplit is null, the divergence card reads "Not yet measured".
 Done when: all counts match the database, the card links work, and the null case renders.
 4.2 Borrowers /borrowers (E2)
@@ -136,18 +138,21 @@ Done when: search and deep links work, and the tag shows for non-measured rows.
 
 The header comes from E3 itself, so a refresh or a direct link works. A 404 shows "This borrower is not in the current build." (borrower ids change when compare.py re-runs.)
 Sub-page of Borrowers, not a nav tab.
-4.4 Facilities /facilities (E4)
+4.4 Triage (the Facilities page) /facilities (E4)
 ┌─────────────────────────────────────────────────────────────┐
-│ Facilities                       [ Search borrower... ]     │
+│ Triage          [ Flagged | All ]   [ Search borrower... ]  │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ ACME HOLDINGS                                           │ │
-│ │ First Lien Term Loan                                    │ │
-│ │ SOFR, spread 500 to 550 bps, maturity bucket            │ │
-│ │ 3 Lenders                       View Comparison →       │ │
+│ │ ACME HOLDINGS                  FLAGGED, 3.2 points      │ │
+│ │ First Lien Term Loan           Exposure USD 1,200,000   │ │
+│ │ SOFR, spread 500 to 550 bps    2 signals                │ │
+│ │ 3 Lenders                      Widened                  │ │
+│ │                                View Comparison →        │ │
 │ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 
-Search calls E4 with search (matches the borrower name). The spread shows as a min to max range, or one value when min equals max.
+The default view calls E4 with flag=FLAGGED and sort=exposure. The toggle switches to all facilities (no flag parameter). Search calls E4 with search (matches the borrower name). The spread shows as a min to max range, or one value when min equals max.
+Each card shows the borrower, the instrument type, the divergence flag with its points (dollars never replace them), the exposure in USD (ExposureTag, with the words "Ranking key, not an estimate of loss."), the signal count (SignalChip) and a persistence tag (PersistenceTag). persistence is null until F3 is built, and the tag then reads "Not yet measured".
+Triage is no longer cuttable. Done when: the default view lists FLAGGED facilities by exposure, the toggle and search work, invalid parameters never reach the API from the UI, and every card shows the flag text with its points.
 4.5 Facility Comparison /facilities/:id (E5), core screen
 ┌─────────────────────────────────────────────────────────────┐
 │ ← Facilities                                                │
@@ -180,6 +185,7 @@ The banner has three states, always showing the label and the point spread.
 The Source cell opens sourceUrl in a new tab. Every row has one.
 Every facility has at least 2 rows. If the API returns an error (including DATA_INTEGRITY), show the generic error state with retry. There is no "not enough lenders" screen.
 Done when: all three banner states render with text, the source links open the right filing, the excluded note appears only when excludedCount is above 0, and the dot plot has one dot per row.
+(v2) Facility Comparison gains, all from E5 and all keeping the source link on every number: an exposure line under the banner (exposureUsd, with "Ranking key, not an estimate of loss."); an Evidence panel, which is the lender table extended with cost % of par, fair value % of cost, spread, floor, PIK, maturity and non-accrual (a null dossier cell reads "Not disclosed", and cells that differ across lenders are marked with text, not color alone); signal chips with labels for the codes in signals (NON_ACCRUAL, PIK_DIFFERS, FLOOR_DIFFERS, SPREAD_DIFFERS, MATURITY_DIFFERS, COST_BASIS_GAP, RATE_TYPE_DIFFERS), worded as signals present, never as causes; and, if F3 is built, a History strip (HistoryStrip, inline SVG like DotPlot: prior to current dots per lender, plus the persistence label). history is null when F3 is not built and reads "Not yet measured"; when F3 is built and there are fewer than two linked prior marks, persistence is NO_PRIOR. Done when: the evidence panel shows a dossier null as "Not disclosed" and the chips render with text.
 4.6 Review Queue /review (E6, E7, E8)
 ┌─────────────────────────────────────────────────────────────┐
 │ Review Queue                                  12 Pending    │
@@ -249,6 +255,7 @@ Any null field reads "Not yet measured", on its own. Fields become available on 
 The band table reports "Match rate", not precision. For the two bands below the threshold it is the share of true matches the matcher missed.
 No figure on this page includes review-queue confirmations, and the page says so in one line.
 Done when: every card renders both its value and its null state, and the sensitivity table and coverage render from live data.
+(v2) New Metrics cards from E9, descriptive and report-only: the signal lift table (evidenceLift: for each signal the share of FLAGGED against the share of AGREEMENT facilities, with both n), the unexplained share (FLAGGED facilities with no signal) and field coverage per BDC (fieldCoverage). If F3 is built, link accuracy with its interval (historyLinks). Each card reads "Not yet measured" when null, and the page says "signals present, not causes" in one line.
 4.8 Filings /filings (E10)
 ┌─────────────────────────────────────────────────────────────┐
 │ SEC Filings                       [ Filter filings... ]     │
@@ -290,7 +297,7 @@ Landing (optional)
     Overview            /
     Borrowers           /borrowers
       Borrower Detail   /borrowers/:id
-    Facilities          /facilities
+    Facilities (nav: Triage) /facilities
       Comparison        /facilities/:id
     Review Queue        /review
     Metrics             /metrics
@@ -333,7 +340,7 @@ E11, E12
 E12
 
 7. Shared components
-Card, StatCard, Banner (label plus point spread), SourceLink, PeriodTag ("Outside measured quarter"), RangeStat (renders a Range with intervals, or "Not yet measured"), DotPlot (inline SVG), BandTable, PairCard, ClusterCard, EmptyState, ErrorState (with retry), Skeleton.
+Card, StatCard, Banner (label plus point spread), SourceLink, PeriodTag ("Outside measured quarter"), RangeStat (renders a Range with intervals, or "Not yet measured"), DotPlot (inline SVG), BandTable, PairCard, ClusterCard, EmptyState, ErrorState (with retry), Skeleton. (v2) ExposureTag, SignalChip, EvidenceTable, HistoryStrip (inline SVG, same approach as DotPlot) and PersistenceTag. No chart library.
 8. Build order by day (matches SPEC section 18)
 Day
 Frontend work
@@ -354,10 +361,10 @@ E1 to E8
 Metrics, cluster cards and 409 handling in Review, comparison polish
 E9, final compare.py
 10
-Overview, Facilities, Filings, the null and error states everywhere, optional landing page
+Triage view (the Facilities page), Evidence panel, new Metrics cards, Overview, Filings, the null and error states everywhere, optional landing page
 E1, E4, E10
 
-If the schedule slips, cut in this order: landing page, Filings, Facilities, Overview. Review Queue, Comparison and Metrics never get cut.
+If the schedule slips, cut in this order: landing page, Filings, Overview, Borrower Detail polish. Triage (the Facilities page), Review Queue, Comparison and Metrics never get cut.
 9. Frontend rules for Claude Code
 You know React, so review every diff and be able to walk through the data flow for the comparison page and the metrics page without notes.
 Build against the real API from Day 7. Do not build from invented sample numbers, and never screenshot made-up data.
