@@ -249,17 +249,19 @@ def pct_par(fair_value: Decimal | None, principal: Decimal | None) -> Decimal | 
 def excluded_reason(*, type_norm: str, principal: Decimal | None, unfunded: bool, ccy: str | None,
                     fair_value: Decimal | None, cfg: dict) -> str | None:
     """One reason per row, first match in the configured order."""
-    # a missing currency takes the NON_USD_PRINCIPAL slot but is reported as CURRENCY_UNKNOWN, not as a non-USD loan
+    # NON_USD_PRINCIPAL (a known currency that is not USD) and CURRENCY_UNKNOWN (no currency) share one slot: they are
+    # exclusive, and the order list in config.yaml keeps them side by side, so a row gets the same reason as before.
     checks = {
         "EQUITY_POSITION": type_norm == "EQUITY",
         "ZERO_OR_NULL_PRINCIPAL": principal is None or principal == 0,
         "UNFUNDED_COMMITMENT": unfunded,
-        "NON_USD_PRINCIPAL": ccy != "USD",
+        "NON_USD_PRINCIPAL": ccy is not None and ccy != "USD",
+        "CURRENCY_UNKNOWN": ccy is None,
         "NULL_FAIR_VALUE": fair_value is None,
     }
     for reason in cfg["normalization"]["excluded_reason_order"]:
         if checks[reason]:
-            return "CURRENCY_UNKNOWN" if reason == "NON_USD_PRINCIPAL" and ccy is None else reason
+            return reason
     return None
 
 

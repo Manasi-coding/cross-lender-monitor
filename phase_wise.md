@@ -167,7 +167,7 @@ blocking_recall:
   sample_size: 30
   seed: 1
 freeze:
-  hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py]   # add any helper module they import (pipeline/currency.py is imported by normalize.py: add it on Day 8)
+  hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py, pipeline/currency.py]   # add any helper module they import (normalize.py imports currency.py; done on Day 8)
 
 All values above are defaults. Thresholds (bands and the two windows) stay at them: no label moves one (SPEC section 12.6). The matcher hash covers the normalization, blocking, scoring and bands sections and the contents of the files in freeze.hashed_files (section 6.8). divergence, sampling and evaluation are not part of it.
 4.2 Env vars (.env.example)

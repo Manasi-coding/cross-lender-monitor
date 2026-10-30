@@ -25,7 +25,8 @@ normalization:
   # Only these reference rate codes are mapped. Any other code is stored as printed and reported.
   reference_rate_codes: {E: EURIBOR, SF: SOFR, S: SOFR}
   # first match wins, one reason per row
-  excluded_reason_order: [EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL, NULL_FAIR_VALUE]
+  # NON_USD_PRINCIPAL (currency known and not USD) and CURRENCY_UNKNOWN (no currency evidence) share one slot, so they sit side by side
+  excluded_reason_order: [EQUITY_POSITION, ZERO_OR_NULL_PRINCIPAL, UNFUNDED_COMMITMENT, NON_USD_PRINCIPAL, CURRENCY_UNKNOWN, NULL_FAIR_VALUE]
 blocking:
   maturity_window_months: 3
   spread_window_bps: 50
@@ -53,7 +54,7 @@ blocking_recall:
   sample_size: 30
   seed: 1
 freeze:
-  hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py]   # add any helper module they import
+  hashed_files: [pipeline/normalize.py, pipeline/block.py, pipeline/match.py, pipeline/currency.py]   # add any helper module they import (normalize.py imports currency.py)
 # Per-filer adapters (phase_wise.md Phase 3). Not part of the matcher hash.
 # Tag names were verified on the 2026-06-30 filings (docs/day1_notes.md), not assumed.
 # unfunded_pattern and non_accrual_pattern are case-insensitive substrings matched against the

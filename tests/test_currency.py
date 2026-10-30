@@ -115,7 +115,7 @@ def test_the_precedence_slot_is_unchanged():
     assert norm(None, instrument_type_raw="Equity Investments")["excluded_reason"] == "EQUITY_POSITION"
     assert norm(None, footnotes_raw="This is an unfunded loan commitment.")["excluded_reason"] == "UNFUNDED_COMMITMENT"
     assert norm(None, fair_value_raw=None)["excluded_reason"] == "CURRENCY_UNKNOWN"             # the currency slot is before null fair value
-    assert CFGS["normalization"]["excluded_reason_order"] == ["EQUITY_POSITION", "ZERO_OR_NULL_PRINCIPAL", "UNFUNDED_COMMITMENT", "NON_USD_PRINCIPAL", "NULL_FAIR_VALUE"]
+    assert CFGS["normalization"]["excluded_reason_order"] == ["EQUITY_POSITION", "ZERO_OR_NULL_PRINCIPAL", "UNFUNDED_COMMITMENT", "NON_USD_PRINCIPAL", "CURRENCY_UNKNOWN", "NULL_FAIR_VALUE"]
 
 
 # ------------------------------------------------------------------ the ladder through normalize.run, on a scratch database

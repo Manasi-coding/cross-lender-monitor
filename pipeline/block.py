@@ -20,7 +20,7 @@ from pathlib import Path
 
 import psycopg
 
-from pipeline.config import load_config, load_env_file, measured_period_end
+from pipeline.config import load_config, load_env_file, resolve_period
 from pipeline.normalize import refuse_if_frozen
 
 NOT_CANDIDATE_TYPES = ("OTHER", "EQUITY")
@@ -129,10 +129,14 @@ def append_run_time(module: str, seconds: float, period: date) -> None:
         f.write(json.dumps(line) + "\n")
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
     import os
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--period", help="period end to block (YYYY-MM-DD); default MEASURED_PERIOD_END. Another period is an out-of-time run, decided with the freeze.")
+    args = ap.parse_args(argv)
     load_env_file()
-    period, cfg = measured_period_end(), load_config()
+    period, cfg = resolve_period(args.period), load_config()
     t0 = time.perf_counter()
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         refuse_if_frozen(conn, "block")

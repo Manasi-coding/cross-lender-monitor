@@ -23,7 +23,7 @@ import psycopg
 from rapidfuzz import fuzz
 
 from pipeline.block import RUN_TIMES, all_pairs, append_run_time, candidate_pairs, efficiency
-from pipeline.config import load_config, load_env_file, measured_period_end
+from pipeline.config import load_config, load_env_file, resolve_period
 from pipeline.normalize import refuse_if_frozen
 
 _Q = Decimal("0.00000001")
@@ -148,9 +148,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--list-non-auto", action="store_true", help="print every non-AUTO candidate pair")
     ap.add_argument("--eyeball", type=int, default=0, help="print N random AUTO pairs (seed from sampling.seed)")
+    ap.add_argument("--period", help="period end to score (YYYY-MM-DD); default MEASURED_PERIOD_END. Another period is an out-of-time run, decided with the freeze.")
     args = ap.parse_args(argv)
     load_env_file()
-    period, cfg = measured_period_end(), load_config()
+    period, cfg = resolve_period(args.period), load_config()
     t0 = time.perf_counter()
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
         res = run(conn, period, cfg)

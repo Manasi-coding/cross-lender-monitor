@@ -860,7 +860,7 @@ Day 11 (+0.25): README and DECISIONS additions.
 Day 12 and after (+1.5): F3 decision at the Day 9 gate. If it passes: link_history.py, compare.py step 9, E4, E5 and E9 history fields, the History strip, the link check and tests 33 to 36.
 Totals: F1 and F2 add 2.25 build days, net 1.75 after cuts, 13 to 14 build days in all; with F3, 4.25 added, net 3.75, 15 to 16 build days. If behind: F1 first, then the dossier fields without the lift table, then the lift table; F3 is the first thing dropped.
 Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1, exposure_usd, built Day 7), 010 (F2 dossier columns and signal codes, Day 9) and 011 (F3).
-Day 8 checklist (v2), before python -m pipeline.config --freeze:
+Day 8 checklist (v2), before python -m pipeline.config --freeze (items 1 to 4 are done in code and tested, the freeze itself is not run yet):
 1. Put CURRENCY_UNKNOWN into normalization.excluded_reason_order in config.yaml, at the NON_USD_PRINCIPAL slot, before the matcher hash exists (the section is hashed; the slot is applied in normalize.py today).
 2. The matcher hash must turn CRLF into LF before hashing, so the hash is the same on a Windows checkout and in CI.
 3. Add a period parameter to block.py and match.py for the out-of-time matching run on 2026-03-31, if that run is wanted. It is decided with the freeze. Default stays MEASURED_PERIOD_END and nothing from another period may reach candidate_pairs, label_samples or band_sizes without it.
