@@ -281,10 +281,17 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   // require an extra click to find.
   const [open, setOpen] = useState(true);
   // "Same" has no server action to call: a pair already sits in this cluster (AUTO or CONFIRMED),
-  // so leaving it alone already means "same". This only fades the row from view locally, it is not
-  // a decision E7/E8 would record, and is never written to the local decisions log.
+  // so leaving it alone already means "same". It fades and then removes the row locally (like a
+  // real decision does once the server confirms it), and is logged with status ACKNOWLEDGED, not
+  // CONFIRMED, so the Decisions page never implies a write happened when none did.
   const [dismissedPairs, setDismissedPairs] = useState(() => new Set());
-  const onDismiss = (a, b) => setDismissedPairs((prev) => new Set(prev).add(`${a}-${b}`));
+  const [resolvedPairs, setResolvedPairs] = useState(() => new Set());
+  const onDismiss = (a, b, recordTitle) => {
+    const pairKey = `${a}-${b}`;
+    setDismissedPairs((prev) => new Set(prev).add(pairKey));
+    recordDecision({ holdingIdA: a, holdingIdB: b, status: "ACKNOWLEDGED", title: recordTitle, context: "cluster" });
+    setTimeout(() => setResolvedPairs((prev) => new Set(prev).add(pairKey)), FADE_MS);
+  };
   const byHoldingId = new Map(c.holdings.map((h) => [h.holdingId, h]));
   const title = c.holdings[0]?.rawName ?? "Name not disclosed";
   const lender = c.holdings[0]?.bdcName ?? "Not disclosed";
@@ -301,7 +308,11 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   let baseDegree = -1;
   for (const [id, d] of degree) if (d > baseDegree) { baseId = id; baseDegree = d; }
   const base = byHoldingId.get(baseId);
-  const others = c.holdings.filter((h) => h.holdingId !== baseId);
+  const others = c.holdings.filter((h) => {
+    if (h.holdingId === baseId) return false;
+    const pair = c.pairs.find((p) => p.holdingIdA === h.holdingId || p.holdingIdB === h.holdingId);
+    return !pair || !resolvedPairs.has(`${pair.holdingIdA}-${pair.holdingIdB}`);
+  });
 
   // Compares to the baseline record by value, not by string: NUMERIC fields can arrive as "475" for
   // one row and "475.00" for another and still be the same number, which a plain !== comparison
@@ -356,7 +367,7 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
                 <tr style={{ color: "var(--color-text-secondary)" }}>
                   <th className="py-1.5 pr-4 font-medium">Record</th>
                   <th className="py-1.5 pr-4 font-medium">Maturity</th>
-                  <th className="py-1.5 pr-4 font-medium">Compared to the baseline</th>
+                  <th className="py-1.5 pr-4 font-medium">Result</th>
                   <th className="py-1.5 pr-4 font-medium">Source</th>
                   <th className="py-1.5 pr-2 font-medium">Decision</th>
                 </tr>
@@ -382,7 +393,7 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
                       <td className="py-1.5 pr-2">
                         {pair && (
                           <div className="flex gap-2">
-                            <button type="button" disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onDismiss(pair.holdingIdA, pair.holdingIdB)}>Same</button>
+                            <button type="button" disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onDismiss(pair.holdingIdA, pair.holdingIdB, h.rawName ?? "Name not disclosed")}>Same</button>
                             <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(pair.holdingIdA, pair.holdingIdB)}>Not the same</button>
                           </div>
                         )}
@@ -410,18 +421,20 @@ export function DecisionsPage() {
 
   const confirmedCount = entries.filter((e) => e.status === "CONFIRMED").length;
   const rejectedCount = entries.filter((e) => e.status === "REJECTED").length;
+  const acknowledgedCount = entries.filter((e) => e.status === "ACKNOWLEDGED").length;
 
   return (
     <>
       <PageTitle>Decisions</PageTitle>
       <p className="mb-5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-        A record of review decisions made from this browser. It is stored locally, not on the server, so it will not show decisions made elsewhere, and clearing it does not undo anything.
+        A record of review decisions made from this browser. It is stored locally, not on the server, so it will not show decisions made elsewhere, and clearing it does not undo anything. "Confirmed" and "Rejected" are real writes the server saved. "Left as is" is not: it just means you looked at a possible duplicate and chose not to split it, no server call was made because none was needed.
       </p>
 
-      <div className="grid gap-5 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
         <StatCard label="Decisions logged" value={entries.length} tone="neutral" />
         <StatCard label="Same borrower / Accepted" value={confirmedCount} tone="brand" />
         <StatCard label="Not the same / Separated" value={rejectedCount} tone="flagged" />
+        <StatCard label="Left as is" value={acknowledgedCount} tone="review" />
       </div>
 
       <Card compact className="mt-5">
@@ -456,16 +469,17 @@ export function DecisionsPage() {
               </thead>
               <tbody>
                 {entries.map((e, i) => {
-                  const confirmed = e.status === "CONFIRMED";
+                  const display = { CONFIRMED: ["Confirmed", "var(--color-chart-green)"], REJECTED: ["Rejected", "var(--color-chart-red)"], ACKNOWLEDGED: ["Left as is", "var(--color-chart-yellow)"] }[e.status] ?? [e.status, "var(--color-text-muted)"];
+                  const [label, dot] = display;
                   return (
                     <tr key={`${e.holdingIdA}-${e.holdingIdB}-${e.at}-${i}`} className="border-t" style={{ borderColor: "var(--color-border)" }}>
                       <td className="py-2 pr-4 whitespace-nowrap" style={{ color: "var(--color-text-secondary)" }}>{new Date(e.at).toLocaleString()}</td>
                       <td className="py-2 pr-4 font-medium" style={{ color: "var(--color-text)" }}>{e.title ?? "Name not disclosed"}</td>
                       <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{e.context === "cluster" ? "Group issue" : "Possible match"}</td>
                       <td className="py-2 pr-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: confirmed ? "var(--color-chart-green)" : "var(--color-chart-red)" }}>
-                          <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: confirmed ? "var(--color-chart-green)" : "var(--color-chart-red)" }} />
-                          {confirmed ? "Confirmed" : "Rejected"}
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: dot }}>
+                          <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: dot }} />
+                          {label}
                         </span>
                       </td>
                     </tr>
