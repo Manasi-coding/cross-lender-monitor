@@ -6,17 +6,23 @@ The overlap section uses a crude name normalization for counting only. It is not
 """
 from __future__ import annotations
 
+import json
 import os
+import platform
 import re
+import statistics
+import subprocess
 import sys
 from collections import defaultdict
 from pathlib import Path
 
 import psycopg
 
+from pipeline.block import efficiency
 from pipeline.config import load_config, load_env_file, measured_period_end
 
 REPORT_PATH = Path(__file__).resolve().parent.parent / "docs" / "data_report.md"
+RUN_TIMES = Path(__file__).resolve().parent.parent / "docs" / "run_times.jsonl"
 
 # crude, report-only tokens dropped before comparing names for the overlap counts
 LEGAL = {"inc", "llc", "lp", "ltd", "limited", "corp", "corporation", "co", "company", "holdings",
@@ -216,6 +222,66 @@ def section_overlap(data: dict) -> str:
             "has a USD-principal row for it. This is a crude count for the 30-name gate, not the matcher.")
 
 
+def tool_version(cmd: list[str]) -> str:
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        return (out.stdout or out.stderr).strip().splitlines()[0] if (out.stdout or out.stderr).strip() else "not available"
+    except (OSError, subprocess.SubprocessError):
+        return "not available"
+
+
+def total_ram_gb() -> str:
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MemStatus(ctypes.Structure):
+                _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong), ("total", ctypes.c_ulonglong), ("avail", ctypes.c_ulonglong),
+                            ("ptotal", ctypes.c_ulonglong), ("pavail", ctypes.c_ulonglong), ("vtotal", ctypes.c_ulonglong),
+                            ("vavail", ctypes.c_ulonglong), ("ext", ctypes.c_ulonglong)]
+            s = MemStatus()
+            s.length = ctypes.sizeof(MemStatus)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(s))
+            return f"{s.total / 2**30:.1f} GB"
+        kb = int(next(l for l in open("/proc/meminfo") if l.startswith("MemTotal")).split()[1])
+        return f"{kb / 2**20:.1f} GB"
+    except Exception:
+        return "not available"
+
+
+def section_machine() -> str:
+    rows = [["OS", platform.platform()], ["CPU", platform.processor() or "not available"], ["Logical CPUs", os.cpu_count()],
+            ["RAM", total_ram_gb()], ["Python", platform.python_version()], ["Node", tool_version(["node", "--version"])],
+            ["Docker", tool_version(["docker", "--version"])]]
+    return (md_table(["Item", "Value"], rows) + "\n\nCollected from the host that ran this report. The pipeline and the API ran in "
+            "this environment, and Postgres in a Docker container on the same host.")
+
+
+def section_blocking(conn, period) -> str:
+    e = efficiency(conn, period)
+    n, found = conn.execute("SELECT count(*), count(*) FILTER (WHERE found_by_blocking) FROM blocking_recall_checks").fetchone()
+    recall = f"{found} of {n} hand-found pairs were put in one block" if n else "Not yet measured (the hand check is not finalized)"
+    rows = [["holdings per BDC", ", ".join(str(c) for c in e["holdings_per_bdc"])], ["all_pairs", e["all_pairs"]],
+            ["candidate_pairs (all statuses)", e["candidate_pairs"]], ["candidate_share", f"{e['candidate_share']:.6f}"],
+            ["pairs_avoided_pct", f"{e['pairs_avoided_pct']:.4f}"], ["blocking recall (independent 30 holding check)", recall]]
+    return (md_table(["Measure", "Value"], rows) + "\n\nall_pairs is the sum of n_i * n_j over BDC pairs in the measured period, from per-BDC counts. "
+            "Pairs avoided is never quoted without blocking recall. Report only: never retuned, never in the API or metric_results.")
+
+
+def section_run_times(period) -> str:
+    runs = [json.loads(l) for l in RUN_TIMES.read_text(encoding="utf-8").splitlines() if l.strip()] if RUN_TIMES.exists() else []
+    rows = []
+    for module in ("block", "match", "compare"):
+        last = [r for r in runs if r["module"] == module and r["period"] == period.isoformat()][-3:]
+        if last:
+            rows.append([module, len(last), f"{statistics.median(r['seconds'] for r in last):.3f}", ", ".join(f"{r['seconds']:.3f}" for r in last),
+                         last[0]["recorded_at"][:16] + " to " + last[-1]["recorded_at"][:16]])
+    return (md_table(["Module", "Runs", "Median seconds", "Last runs", "Recorded (UTC)"], rows) + "\n\nMedian of the last 3 runs on the measured quarter, wall clock, "
+            "including Python start and the database connection. The config hash field in run_times.jsonl is null for every line, so the log does not show "
+            "which config a run used. block and match were last run on 2026-10-30 12:46 UTC, before the freeze at 13:19 UTC, and are not run again after a freeze; "
+            "compare ran 3 times after it.")
+
+
 def build(conn) -> str:
     cfg = load_config()
     period = measured_period_end()
@@ -223,13 +289,16 @@ def build(conn) -> str:
     parts = [
         "# Data report",
         f"Measured quarter {period}. Generated by `python -m pipeline.report` (read only). Every number comes "
-        "from the database or config.yaml. Blocking efficiency and run times are added after the matcher is built.",
+        "from the database, config.yaml, run_times.jsonl or the host.",
         "",
         "## 1. Ingest and parse rates per filing", section_parse(data, cfg), "",
         "## 2. Equity-like rows with nonzero principal", section_equity(data, cfg), "",
         "## 3. Unfunded-commitment and non-accrual footnotes", section_footnotes(data, cfg), "",
         "## 4. Rate strings: spread, floor and PIK tokens", section_rates(data), "",
         "## 5. Cross-BDC borrower overlap on the ingested data", section_overlap(data), "",
+        "## 6. Blocking efficiency and blocking recall", section_blocking(conn, period), "",
+        "## 7. Run times", section_run_times(period), "",
+        "## 8. Machine", section_machine(), "",
     ]
     return "\n".join(parts)
 

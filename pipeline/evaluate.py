@@ -3,8 +3,8 @@
 Run: python -m pipeline.evaluate
 It refuses unless a freeze row exists and the current matcher hash equals it and the hash stored in band_sizes (and in
 outoftime_band_sizes when that draw exists), or if any held-out sample is unlabeled. It reads label_samples, labeled_pairs,
-band_sizes and outoftime_band_sizes only. It never reads candidate_pairs, so review-queue clicks cannot reach a number, and it
-writes nothing. No result changes or suggests a threshold, a rule or a config value.
+band_sizes, outoftime_band_sizes and blocking_recall_checks only. It never reads candidate_pairs, so review-queue clicks cannot reach a number, and it
+writes only metric_results (one row per run, none with --dry-run). No result changes or suggests a threshold, a rule or a config value.
 
 Reporting rules, fixed before the held-out labels existed (DECISIONS.md):
   Held-out (phase HELDOUT only): per band the frame size, the sampled n and the MATCH, NO_MATCH and UNSURE counts. Precision is
@@ -19,10 +19,12 @@ Reporting rules, fixed before the held-out labels existed (DECISIONS.md):
 from __future__ import annotations
 
 import os
+import random
 import sys
 from decimal import ROUND_HALF_UP, Decimal
 
 import psycopg
+from psycopg.types.json import Jsonb
 
 from pipeline.config import REPO_ROOT, load_config, load_env_file, require_frozen_matching
 from pipeline.sample_labels import BANDS
@@ -115,6 +117,138 @@ def build_report(conn, cfg: dict, root=REPO_ROOT) -> dict:
     return {"hash": stored, "heldout": held, "outoftime": oot, "tuning": tuning}
 
 
+# ------------------------------------------------------------------ the E9 payload (metric_results)
+def q6(x: Decimal) -> float:
+    return float(x.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
+
+
+def ci(k: int, n: int, z: Decimal) -> dict | None:
+    """E9 Ci from a Wilson interval, None when n is 0."""
+    w = wilson(k, n, z)
+    return None if w is None else {"value": q6(w[0]), "low": q6(w[1]), "high": q6(w[2]), "n": n}
+
+
+def range3(c: dict, z: Decimal) -> dict:
+    """E9 Range. unsureAsNoMatch is the worst case, unsureAsMatch the best case, unsureExcluded the headline (null when no decided pair)."""
+    m, no, u = c["MATCH"], c["NO_MATCH"], c["UNSURE"]
+    return {"unsureAsNoMatch": ci(m, m + no + u, z), "unsureAsMatch": ci(m + u, m + no + u, z), "unsureExcluded": ci(m, m + no, z)}
+
+
+def m_share(c: dict, mode: str) -> Decimal | None:
+    m, no, u = c["MATCH"], c["NO_MATCH"], c["UNSURE"]
+    num, den = {"worst": (m, m + no + u), "best": (m + u, m + no + u), "excluded": (m, m + no)}[mode]
+    return Decimal(num) / Decimal(den) if den else None
+
+
+def weighted(counts: dict, frames: dict, mode: str, S: tuple, kind: str) -> Decimal | None:
+    """SPEC 12.6: precision = sum(m_b N_b, b in S) / sum(N_b, b in S); recall = sum(m_b N_b, b in S) / sum(m_b N_b, all bands).
+    A band with no decided pair in this mode has no share, so it contributes 0 (a stated convention)."""
+    def mn(b):
+        s = m_share(counts[b], mode)
+        return (s if s is not None else Decimal(0)) * frames[b]
+    top = sum((mn(b) for b in S), Decimal(0))
+    den = sum((frames[b] for b in S), Decimal(0)) if kind == "precision" else sum((mn(b) for b in BANDS), Decimal(0))
+    return top / den if den else None
+
+
+WEIGHTED = {"precisionIfReviewAutoAccepted": (("AUTO", "REVIEW"), "precision"), "recallAutoOnly": (("AUTO",), "recall"),
+            "recallIfReviewAutoAccepted": (("AUTO", "REVIEW"), "recall")}
+MODES = {"unsureAsNoMatch": "worst", "unsureAsMatch": "best", "unsureExcluded": "excluded"}
+
+
+def weighted_ranges(held: dict, cfg: dict) -> dict:
+    """Band-weighted figures with a bootstrap over bands: each sampled band's labeled pairs are resampled with replacement;
+    a band labeled in full is a census and is not resampled. Fixed seed from evaluation.bootstrap_seed."""
+    b = held["bands"]
+    counts = {k: b[k]["counts"] for k in BANDS}
+    frames = {k: Decimal(b[k]["frame"]) for k in BANDS}
+    if any(b[k]["sampled"] == 0 and b[k]["frame"] > 0 for k in BANDS):
+        return {k: None for k in WEIGHTED}                                    # a band with no sample: recall cannot be weighted
+    resamples, seed = int(cfg["evaluation"]["bootstrap_resamples"]), cfg["evaluation"]["bootstrap_seed"]
+    rng = random.Random(f"{seed}:weighted")
+    labels = {k: ["MATCH"] * counts[k]["MATCH"] + ["NO_MATCH"] * counts[k]["NO_MATCH"] + ["UNSURE"] * counts[k]["UNSURE"]
+              for k in BANDS if not b[k]["full"] and b[k]["sampled"]}
+    draws = {name: {mode: [] for mode in MODES} for name in WEIGHTED}
+    for _ in range(resamples):
+        c = dict(counts)
+        for k, lab in labels.items():
+            r = rng.choices(lab, k=len(lab))
+            c[k] = {x: r.count(x) for x in LABELS}
+        for name, (S, kind) in WEIGHTED.items():
+            for key, mode in MODES.items():
+                v = weighted(c, frames, mode, S, kind)
+                if v is not None:
+                    draws[name][key].append(v)
+    out = {}
+    for name, (S, kind) in WEIGHTED.items():
+        n = sum(b[k]["sampled"] for k in (S if kind == "precision" else BANDS))
+        entry = {}
+        for key, mode in MODES.items():
+            v, d = weighted(counts, frames, mode, S, kind), sorted(draws[name][key])
+            if v is None or not d:
+                entry[key] = None
+                continue
+            lo, hi = d[round(0.025 * (len(d) - 1))], d[round(0.975 * (len(d) - 1))]
+            entry[key] = {"value": q6(v), "low": q6(min(lo, v)), "high": q6(max(hi, v)), "n": n}
+        out[name] = entry
+    return out
+
+
+def band_entries(sec: dict, z: Decimal) -> list[dict]:
+    out = []
+    for name in BANDS:
+        e = sec["bands"][name]
+        c = e["counts"]
+        out.append({"name": name, "bandSize": e["frame"], "sampleSize": e["sampled"], "labeledInFull": e["full"],
+                    "counts": {"match": c["MATCH"], "noMatch": c["NO_MATCH"], "unsure": c["UNSURE"]},
+                    "matchRate": range3(c, z) if e["sampled"] and not e["full"] else None})
+    return out
+
+
+def blocking_recall_ci(conn, z: Decimal) -> dict | None:
+    n, k = conn.execute("SELECT count(*), count(*) FILTER (WHERE found_by_blocking) FROM blocking_recall_checks").fetchone()
+    return ci(k, n, z)
+
+
+def build_payload(conn, cfg: dict, rep: dict) -> dict:
+    """The label-derived E9 fields, HELDOUT only. The out-of-time report is stored apart in outOfTime and is never pooled."""
+    z = Decimal(str(cfg["evaluation"]["wilson_z"]))
+    held, bands = rep["heldout"], rep["heldout"]["bands"]
+    auto, review = bands["AUTO"], bands["REVIEW"]
+    heldout_count = sum(sum(e["counts"].values()) for e in bands.values())
+    drawn = conn.execute("SELECT count(*) FROM label_samples WHERE phase = 'HELDOUT'").fetchone()[0]
+    if heldout_count != drawn:
+        raise SystemExit(f"evaluate.py refuses: {heldout_count} held-out labels counted but {drawn} samples were drawn.")
+    payload = {
+        "precisionAutoOnly": range3(auto["counts"], z) if auto["sampled"] and not auto["full"] else None,
+        "precisionReviewBand": range3(review["counts"], z) if review["sampled"] and not review["full"] else None,
+        **weighted_ranges(held, cfg),
+        "blockingRecall": blocking_recall_ci(conn, z),
+        "bands": band_entries(held, z),
+        "unsureCount": sum(e["counts"]["UNSURE"] for e in bands.values()),
+        "heldOutCount": heldout_count,
+        "outOfTime": None,
+        "matcherConfigHash": rep["hash"],
+    }
+    oot = rep["outoftime"]
+    if oot["drawn"] and oot["bands"] is not None:
+        ob = oot["bands"]
+        payload["outOfTime"] = {"periodEnd": cfg["sampling"]["outoftime_period"],
+                                "precisionAutoOnly": range3(ob["AUTO"]["counts"], z) if ob["AUTO"]["sampled"] and not ob["AUTO"]["full"] else None,
+                                "bands": band_entries(oot, z),
+                                "unsureCount": sum(e["counts"]["UNSURE"] for e in ob.values()),
+                                "labeledCount": sum(sum(e["counts"].values()) for e in ob.values())}
+    return payload
+
+
+def write_metric_results(conn, cfg: dict, root=REPO_ROOT) -> dict:
+    """Refuse unless frozen and matching, then append one metric_results row (the newest row is what E9 serves)."""
+    rep = build_report(conn, cfg, root)
+    payload = build_payload(conn, cfg, rep)
+    conn.execute("INSERT INTO metric_results (matcher_config_hash, payload) VALUES (%s, %s)", (rep["hash"], Jsonb(payload)))
+    return payload
+
+
 def fmt_number(name: str, d: dict) -> str:
     if d["ci"] is None:
         return f"    {name}: {d['k']} of {d['n']}, not defined (n is 0)"
@@ -165,11 +299,18 @@ def render(rep: dict) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--dry-run", action="store_true", help="print the report and write nothing")
+    args = ap.parse_args(argv)
     load_env_file()
     cfg = load_config()
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
-        conn.read_only = True
         print(render(build_report(conn, cfg)))
+        if args.dry_run:
+            return 0
+        write_metric_results(conn, cfg)
+        print("\nmetric_results: one row written.")
     return 0
 
 

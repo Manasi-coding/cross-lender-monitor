@@ -219,6 +219,115 @@ def test_the_cli_prints_the_report(migrated_db, monkeypatch, capsys):
     with psycopg.connect(migrated_db) as conn:
         scenario(conn)
         conn.commit()
-    assert evaluate.main() == 0
+    assert evaluate.main([]) == 0
     out = capsys.readouterr().out
     assert "HELD-OUT (phase HELDOUT, measured period)" in out and "UNSURE excluded: 55 of 58" in out
+
+
+# ------------------------------------------------------------------ metric_results (SPEC 12.6, tests 23 and 25)
+def rows(conn):
+    return conn.execute("SELECT matcher_config_hash, payload FROM metric_results ORDER BY metric_id").fetchall()
+
+
+def test_write_stores_the_held_out_payload_with_the_three_numbers_and_the_hash(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        scenario(conn)
+        label(conn, "OUTOFTIME", {"AUTO": ["MATCH"] * 25 + ["NO_MATCH"] * 5, "REVIEW": ["MATCH", "UNSURE"], "JUST_BELOW": ["NO_MATCH", "NO_MATCH"], "LOW": []})
+        assert rows(conn) == []                                                   # test 23: nothing before evaluate.py runs
+        evaluate.write_metric_results(conn, CFG)
+        (h, p), = rows(conn)
+        drawn = conn.execute("SELECT count(*) FROM label_samples WHERE phase = 'HELDOUT'").fetchone()[0]
+        frozen_hash = conn.execute("SELECT matcher_config_hash FROM matcher_freeze").fetchone()[0]
+    assert h == p["matcherConfigHash"] == frozen_hash
+    assert p["heldOutCount"] == drawn == 60 + 5 + 3 + 2 and p["unsureCount"] == 2 + 1 + 1
+    a = p["precisionAutoOnly"]
+    assert (a["unsureExcluded"]["n"], a["unsureAsNoMatch"]["n"], a["unsureAsMatch"]["n"]) == (58, 60, 60)
+    assert a["unsureExcluded"]["value"] == round(55 / 58, 6) and a["unsureAsNoMatch"]["value"] == round(55 / 60, 6) and a["unsureAsMatch"]["value"] == round(57 / 60, 6)
+    assert a["unsureAsNoMatch"]["low"] <= a["unsureExcluded"]["value"] <= a["unsureAsMatch"]["high"]
+    assert p["precisionReviewBand"] is None                                       # labeled in full: counts, not an estimate
+    assert p["blockingRecall"] is None                                            # until the hand check is finalized
+    assert [b["name"] for b in p["bands"]] == ["AUTO", "REVIEW", "JUST_BELOW", "LOW"]
+    assert p["bands"][1]["labeledInFull"] and p["bands"][1]["matchRate"] is None and p["bands"][1]["counts"] == {"match": 3, "noMatch": 1, "unsure": 1}
+    o = p["outOfTime"]                                                            # stored apart, never pooled
+    assert o["labeledCount"] == 34 and o["precisionAutoOnly"]["unsureExcluded"]["n"] == 30
+    assert p["bands"][0]["counts"] == {"match": 55, "noMatch": 3, "unsure": 2}
+
+
+def test_weighted_figures_match_hand_computed_values_and_the_bootstrap_is_repeatable(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        scenario(conn, with_oot=False)
+        evaluate.write_metric_results(conn, CFG)
+        evaluate.write_metric_results(conn, CFG)
+        (_, p1), (_, p2) = rows(conn)
+    assert p1 == p2                                                                # fixed seed: identical
+    # worst case: m_AUTO 55/60, m_REVIEW 3/5, m_JUST_BELOW 1/3, m_LOW 0; frames 100, 5, 3, 2
+    pr = p1["precisionIfReviewAutoAccepted"]["unsureAsNoMatch"]
+    assert pr["value"] == round((55 / 60 * 100 + 3) / 105, 6) and pr["n"] == 65
+    rc = p1["recallAutoOnly"]["unsureAsNoMatch"]
+    assert rc["value"] == round((55 / 60 * 100) / (55 / 60 * 100 + 3 + 1 + 0), 6) and rc["n"] == 70
+    for name in ("precisionIfReviewAutoAccepted", "recallAutoOnly", "recallIfReviewAutoAccepted"):
+        for k, c in p1[name].items():
+            assert c["low"] <= c["value"] <= c["high"] and 0 <= c["low"] and c["high"] <= 1, (name, k)
+    # a band labeled in full is a census: only AUTO is resampled, so the interval width comes from AUTO alone
+    assert p1["recallAutoOnly"]["unsureAsMatch"]["value"] < 1 and p1["recallAutoOnly"]["unsureAsMatch"]["value"] != p1["recallAutoOnly"]["unsureAsNoMatch"]["value"]
+
+
+def test_the_payload_ignores_candidate_pairs_status_and_tuning_labels(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        scenario(conn, with_oot=False)
+        evaluate.write_metric_results(conn, CFG)
+        conn.execute("UPDATE candidate_pairs SET status = 'CONFIRMED', score = 0.01")             # test 23: flipping statuses changes nothing
+        evaluate.write_metric_results(conn, CFG)
+        (_, p1), (_, p2) = rows(conn)
+    assert p1 == p2
+
+
+def test_write_refuses_without_freeze_and_on_hash_change_and_writes_nothing(migrated_db, tmp_path):
+    root = make_root(tmp_path)
+    cfg = copy.deepcopy(CFG)
+    cfg["freeze"]["hashed_files"] = ["pipeline/a.py", "pipeline/b.py"]
+    with psycopg.connect(migrated_db) as conn:
+        pool(conn, {"AUTO": 5}, P2, "m")
+        with pytest.raises(SystemExit, match="no matcher_freeze row"):
+            evaluate.write_metric_results(conn, cfg, root)
+        freeze(conn, cfg, root)
+        draw_heldout(conn, P2, cfg, root)
+        label(conn, "HELDOUT", {"AUTO": ["MATCH"] * 5, "REVIEW": [], "JUST_BELOW": [], "LOW": []})
+        (root / "pipeline/a.py").write_text("x = 'changed'\n")
+        with pytest.raises(SystemExit, match="matcher changed since the freeze"):
+            evaluate.write_metric_results(conn, cfg, root)
+        assert rows(conn) == []
+
+
+def test_the_out_of_time_stored_hash_must_equal_the_freeze_row(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        scenario(conn)
+        conn.execute("UPDATE outoftime_band_sizes SET matcher_config_hash = 'other' WHERE score_band = 'LOW'")
+        with pytest.raises(SystemExit, match="outoftime_band_sizes holds a hash that differs"):
+            evaluate.write_metric_results(conn, CFG)
+        assert rows(conn) == []
+
+
+def test_blocking_recall_is_null_until_a_check_exists_then_a_wilson_ci(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        scenario(conn, with_oot=False)
+        ids = [r[0] for r in conn.execute("SELECT holding_id FROM normalized_holdings ORDER BY holding_id LIMIT 6").fetchall()]
+        for i in range(3):
+            conn.execute("INSERT INTO blocking_recall_checks (holding_id, counterpart_holding_id, found_by_blocking) VALUES (%s, %s, %s)", (ids[2 * i], ids[2 * i + 1], i < 2))
+        evaluate.write_metric_results(conn, CFG)
+        (_, p), = rows(conn)
+    assert p["blockingRecall"]["n"] == 3 and p["blockingRecall"]["value"] == round(2 / 3, 6) and p["blockingRecall"]["low"] < 2 / 3 < p["blockingRecall"]["high"]
+
+
+def test_dry_run_writes_nothing_and_a_normal_run_writes_one_row(migrated_db, monkeypatch, capsys):
+    monkeypatch.setenv("DATABASE_URL", migrated_db)
+    with psycopg.connect(migrated_db) as conn:
+        scenario(conn)
+        conn.commit()
+    assert evaluate.main(["--dry-run"]) == 0
+    with psycopg.connect(migrated_db) as conn:
+        assert rows(conn) == []
+    assert evaluate.main([]) == 0
+    assert "metric_results: one row written." in capsys.readouterr().out
+    with psycopg.connect(migrated_db) as conn:
+        assert len(rows(conn)) == 1
