@@ -308,10 +308,14 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   let baseDegree = -1;
   for (const [id, d] of degree) if (d > baseDegree) { baseId = id; baseDegree = d; }
   const base = byHoldingId.get(baseId);
+  // A holding with no pair left in c.pairs has already been separated by a real decision (its
+  // pair's status is no longer AUTO/CONFIRMED, so the server stopped listing it here): it belongs
+  // in neither this list, nor does it need a button, since there is nothing left to decide.
   const others = c.holdings.filter((h) => {
     if (h.holdingId === baseId) return false;
     const pair = c.pairs.find((p) => p.holdingIdA === h.holdingId || p.holdingIdB === h.holdingId);
-    return !pair || !resolvedPairs.has(`${pair.holdingIdA}-${pair.holdingIdB}`);
+    if (!pair) return false;
+    return !resolvedPairs.has(`${pair.holdingIdA}-${pair.holdingIdB}`);
   });
 
   // Compares to the baseline record by value, not by string: NUMERIC fields can arrive as "475" for
