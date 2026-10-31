@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
 import {
+  BarList,
   Card,
   CardLabel,
   ClickableDivergenceBar,
@@ -22,6 +23,7 @@ import {
   Skeleton,
   SourceLink,
   StatCard,
+  StatusDot,
   StatusPill,
   useFetch,
 } from "./components.jsx";
@@ -389,38 +391,124 @@ export function BorrowerDetailPage() {
   );
 }
 
+// A filing's period end as a quarter label, e.g. 2026-06-30 -> "Q2 2026". Display only.
+function quarterLabel(periodEnd) {
+  const [y, m] = periodEnd.split("-").map(Number);
+  return `Q${Math.ceil(m / 3)} ${y}`;
+}
+
 // ------------------------------------------------------------------ 4.8 Filings
 export function FilingsPage() {
   const f = useFetch(() => getJson("/api/filings"), []);
-  const [filter, setFilter] = useState("");
+  const [lender, setLender] = useState("");
+  const [quarter, setQuarter] = useState("");
+  const [formType, setFormType] = useState("");
+  const [selected, setSelected] = useState(null);
   const { overview } = useShared();
+
   return (
     <>
-      <PageTitle sub="The source documents behind the monitor">SEC filings</PageTitle>
-      <input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
-        placeholder="Filter filings"
-        aria-label="Filter filings"
-        maxLength={200}
-        className={`mb-5 max-w-md ${inputClass}`}
-        style={inputStyle}
-      />
+      <PageTitle>Filings</PageTitle>
       <Load f={f}>
         {(rows) => {
-          const t = filter.trim().toLowerCase();
-          const shown = rows.filter((r) => !t || `${r.bdcName} ${r.formType} ${r.periodEnd}`.toLowerCase().includes(t));
-          return shown.length === 0 ? (
-            <EmptyState>No filings match this filter.</EmptyState>
-          ) : (
-            <div className="space-y-4">
-              {shown.map((r) => (
-                <Card key={r.sourceUrl}>
-                  <p className="font-semibold" style={{ color: "var(--color-text)" }}>{r.bdcName}</p>
-                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{r.formType}, period end {r.periodEnd}<PeriodTag periodEnd={r.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
-                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>Holdings: {r.holdingsCount} &nbsp; <SourceLink url={r.sourceUrl}>View SEC filing</SourceLink></p>
+          const lenders = [...new Set(rows.map((r) => r.bdcName))].sort();
+          const quarters = [...new Set(rows.map((r) => r.periodEnd))].sort().reverse();
+          const types = [...new Set(rows.map((r) => r.formType))].sort();
+          const shown = rows.filter((r) => (!lender || r.bdcName === lender) && (!quarter || r.periodEnd === quarter) && (!formType || r.formType === formType));
+          const sel = selected ?? shown[0] ?? null;
+
+          const lenderColors = ["var(--color-chart-green)", "var(--color-chart-green-dark)", "#15803d", "#4ade80"];
+          const byLender = lenders.map((name, i) => ({ label: name.split(" ")[0], value: rows.filter((r) => r.bdcName === name).length, color: lenderColors[i % lenderColors.length] }));
+          const byQuarter = quarters
+            .slice()
+            .reverse()
+            .map((q) => ({ label: quarterLabel(q), value: rows.filter((r) => r.periodEnd === q).length, color: "var(--color-chart-green)" }));
+
+          return (
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Financial reports used to build the comparison data</p>
+                <span className="ml-auto rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: "var(--color-brand-light)", color: "var(--color-brand-dark)" }}>{rows.length} filings</span>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <select value={lender} onChange={(e) => setLender(e.target.value)} className="rounded-xl border px-3 py-1.5 text-sm" style={inputStyle}>
+                  <option value="">All lenders</option>
+                  {lenders.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+                <select value={quarter} onChange={(e) => setQuarter(e.target.value)} className="rounded-xl border px-3 py-1.5 text-sm" style={inputStyle}>
+                  <option value="">All quarters</option>
+                  {quarters.map((q) => <option key={q} value={q}>{quarterLabel(q)}</option>)}
+                </select>
+                <select value={formType} onChange={(e) => setFormType(e.target.value)} className="rounded-xl border px-3 py-1.5 text-sm" style={inputStyle}>
+                  <option value="">All filing types</option>
+                  {types.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <Card compact>
+                <CardLabel>Filings</CardLabel>
+                {shown.length === 0 ? (
+                  <EmptyState>No filings match this filter.</EmptyState>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead>
+                        <tr style={{ color: "var(--color-text-secondary)" }}>
+                          <th className="py-1.5 pr-4 font-medium">Lender</th>
+                          <th className="py-1.5 pr-4 font-medium">Quarter</th>
+                          <th className="py-1.5 pr-4 font-medium">Filing</th>
+                          <th className="py-1.5 pr-2 font-medium">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shown.map((r) => (
+                          <tr
+                            key={r.sourceUrl}
+                            onClick={() => setSelected(r)}
+                            className="table-row-hover cursor-pointer border-t transition-colors"
+                            style={{ borderColor: "var(--color-border)", background: sel === r ? "var(--color-brand-faint)" : undefined }}
+                          >
+                            <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.bdcName}<PeriodTag periodEnd={r.periodEnd} measured={overview?.measuredPeriodEnd} /></td>
+                            <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{quarterLabel(r.periodEnd)}</td>
+                            <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{r.formType}</td>
+                            <td className="py-2 pr-2"><StatusDot flag="AGREEMENT" label="Processed" /> <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Processed</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Card compact>
+                  <CardLabel>Filings by lender</CardLabel>
+                  <BarList compact rows={byLender} />
                 </Card>
-              ))}
+                <Card compact>
+                  <CardLabel>Filings by quarter</CardLabel>
+                  <BarList compact rows={byQuarter} />
+                  <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>Number of processed filings</p>
+                </Card>
+              </div>
+
+              {sel && (
+                <Card compact>
+                  <CardLabel>Selected filing</CardLabel>
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <p className="font-semibold" style={{ color: "var(--color-text)" }}>{sel.bdcName}</p>
+                    <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{quarterLabel(sel.periodEnd)}</p>
+                  </div>
+                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                    Filed: {sel.periodEnd} &nbsp;&middot;&nbsp; Type: {sel.formType} &nbsp;&middot;&nbsp; Status: <StatusDot flag="AGREEMENT" label="Processed" /> Processed
+                  </p>
+                  <p className="mt-3 text-sm" style={{ color: "var(--color-text)" }}>
+                    <span className="font-semibold">{sel.holdingsCount}</span> <span style={{ color: "var(--color-text-secondary)" }}>holdings reported</span>
+                  </p>
+                  <p className="mt-3"><SourceLink url={sel.sourceUrl}>View SEC filing</SourceLink></p>
+                </Card>
+              )}
             </div>
           );
         }}
