@@ -2,9 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { Pool } from "pg";
-import { createApp } from "../src/app";
-import { baseUrl, createScratch } from "./db";
+
+import { createApp } from "../src/app.js";
+import { baseUrl, createScratch } from "./db.js";
 
 // E1 to E8 and E10 against a scratch database (SPEC tests 12, 13, 22, 28 and 31, plus the contract's shape, sort order,
 // 400, 404, 409, DATA_INTEGRITY and null cases). The curated rows are written directly, so the API is tested on its own.
@@ -17,10 +17,10 @@ const P2 = "2026-06-30";
 const P1 = "2026-03-31";
 
 describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
-  let db: Awaited<ReturnType<typeof createScratch>>;
-  let pool: Pool;
-  let app: ReturnType<typeof createApp>;
-  let filings: number[] = [];
+  let db;
+  let pool;
+  let app;
+  let filings= [];
   let hSeq = 0;
 
   beforeAll(async () => {
@@ -60,12 +60,12 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     }
   }
 
-  async function holding(bdc: number, raw: string, o: { norm?: string; spread?: string | null; pct?: string | null; principal?: string | null; maturity?: string | null; period?: string } = {}) {
+  async function holding(bdc, raw, o= {}) {
     const r = await pool.query(
       `INSERT INTO raw_holdings (filing_id, portfolio_company_raw, source_url) VALUES ($1, $2, $3) RETURNING holding_id`,
       [filings[bdc], raw, `https://example.test/h/${++hSeq}`],
     );
-    const id = r.rows[0].holding_id as number;
+    const id = r.rows[0].holding_id;
     await pool.query(
       `INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, instrument_type_norm, spread_bps, maturity_date,
                                         principal, fair_value_pct_par, source_url)
@@ -75,15 +75,14 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     return id;
   }
 
-  type Member = { bdc: number; spread: string | null; pct: string | null; principal: string; reason?: string };
-  async function borrower(name: string, period = P2) {
-    return (await pool.query(`INSERT INTO canonical_borrowers (canonical_name, period_end_date) VALUES ($1, $2) RETURNING canonical_borrower_id`, [name, period])).rows[0].canonical_borrower_id as number;
+  async function borrower(name, period = P2) {
+    return (await pool.query(`INSERT INTO canonical_borrowers (canonical_name, period_end_date) VALUES ($1, $2) RETURNING canonical_borrower_id`, [name, period])).rows[0].canonical_borrower_id;
   }
   async function facility(
-    borrowerId: number,
-    type: string,
-    members: Member[],
-    s: { div: string; flag: string; exposure: string; maturity?: string | null; rate?: string | null; period?: string },
+    borrowerId,
+    type,
+    members,
+    s,
   ) {
     const fid = (
       await pool.query(
@@ -91,7 +90,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
          VALUES ($1, $2, $3, $4, $5) RETURNING facility_id`,
         [borrowerId, s.period ?? P2, type, s.rate === undefined ? "SOFR" : s.rate, s.maturity === undefined ? "2030-01-31" : s.maturity],
       )
-    ).rows[0].facility_id as number;
+    ).rows[0].facility_id;
     for (const m of members) {
       const hid = await holding(m.bdc, `row ${hSeq + 1}`, { spread: m.spread, pct: m.pct, principal: m.principal });
       await pool.query(
@@ -108,7 +107,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     return fid;
   }
 
-  const two = (pctA: string, pctB: string, spreadA = "500", spreadB = "525"): Member[] => [
+  const two = (pctA, pctB, spreadA = "500", spreadB = "525")=> [
     { bdc: 0, spread: spreadA, pct: pctA, principal: "5000000" },
     { bdc: 1, spread: spreadB, pct: pctB, principal: "2000000" },
   ];
@@ -149,10 +148,10 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     void b3;
     const all = await request(app).get("/api/borrowers");
     expect(all.status).toBe(200);
-    expect(all.body.map((r: { canonicalName: string; periodEnd: string }) => [r.canonicalName, r.periodEnd])).toEqual([
+    expect(all.body.map((r) => [r.canonicalName, r.periodEnd])).toEqual([
       ["Beta Corp", P2], ["acme", P2], ["acme", P1],
     ].sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] < y[1] ? 1 : -1)));
-    const acme = all.body.find((r: { canonicalName: string; periodEnd: string }) => r.canonicalName === "acme" && r.periodEnd === P2);
+    const acme = all.body.find((r) => r.canonicalName === "acme" && r.periodEnd === P2);
     expect(Object.keys(acme)).toEqual(["canonicalBorrowerId", "canonicalName", "periodEnd", "lenderCount", "facilityCount"]);
     expect(acme).toMatchObject({ lenderCount: 2, facilityCount: 2 }); // the unfunded third BDC has no usable mark
     expect((await request(app).get("/api/borrowers?search=ACM")).body).toHaveLength(2); // case-insensitive substring: both periods
@@ -170,7 +169,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     expect(res.status).toBe(200);
     expect(Object.keys(res.body)).toEqual(["canonicalBorrowerId", "canonicalName", "periodEnd", "lenderCount", "facilityCount", "facilities"]);
     expect(res.body).toMatchObject({ canonicalBorrowerId: b, canonicalName: "acme", periodEnd: P2, lenderCount: 2, facilityCount: 3 });
-    expect(res.body.facilities.map((f: { facilityId: number }) => f.facilityId)).toEqual([f0, f1, f2]);
+    expect(res.body.facilities.map((f) => f.facilityId)).toEqual([f0, f1, f2]);
     expect(Object.keys(res.body.facilities[0])).toEqual(["facilityId", "instrumentType", "referenceRate", "maturityBucket", "lenderCount"]);
     expect((await request(app).get("/api/borrowers/9999/facilities")).status).toBe(404);
     expect((await request(app).get("/api/borrowers/abc/facilities")).status).toBe(400);
@@ -190,7 +189,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     const { fz, fa1, fa2 } = await threeFacilities();
     const res = await request(app).get("/api/facilities");
     expect(res.status).toBe(200);
-    expect(res.body.map((f: { facilityId: number }) => f.facilityId)).toEqual([fa2, fa1, fz]); // borrower, instrumentType ascending
+    expect(res.body.map((f) => f.facilityId)).toEqual([fa2, fa1, fz]); // borrower, instrumentType ascending
     expect(Object.keys(res.body[0])).toEqual([
       "facilityId", "borrowerName", "periodEnd", "instrumentType", "referenceRate", "spreadBps", "maturityBucket", "lenderCount",
       "divergencePts", "divergenceFlag", "exposureUsd", "signalCount", "persistence",
@@ -205,17 +204,17 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
   it("E4 sort=exposure orders by exposure, then divergence, then facility id, and is stable across calls (test 28)", async () => {
     const { fz, fa1, fa2 } = await threeFacilities();
     const first = await request(app).get("/api/facilities?sort=exposure");
-    expect(first.body.map((f: { facilityId: number }) => f.facilityId)).toEqual([fz, fa1, fa2]); // fz and fa1 tie on exposure; fz has the larger divergence
+    expect(first.body.map((f) => f.facilityId)).toEqual([fz, fa1, fa2]); // fz and fa1 tie on exposure; fz has the larger divergence
     expect((await request(app).get("/api/facilities?sort=exposure")).body).toEqual(first.body);
     await pool.query(`UPDATE facility_summary SET divergence_pts = 2 WHERE facility_id = $1`, [fz]);
     const tied = await request(app).get("/api/facilities?sort=exposure");
-    expect(tied.body.map((f: { facilityId: number }) => f.facilityId)).toEqual([fz, fa1, fa2]); // full tie: ascending facility id (fz was created first)
+    expect(tied.body.map((f) => f.facilityId)).toEqual([fz, fa1, fa2]); // full tie: ascending facility id (fz was created first)
   });
 
   it("E4 filters by flag and searches; invalid flag or sort returns 400 (test 31)", async () => {
     const { fz, fa1 } = await threeFacilities();
     const flagged = await request(app).get("/api/facilities?flag=FLAGGED&sort=exposure");
-    expect(flagged.body.map((f: { facilityId: number }) => f.facilityId)).toEqual([fz, fa1]);
+    expect(flagged.body.map((f) => f.facilityId)).toEqual([fz, fa1]);
     expect((await request(app).get("/api/facilities?flag=MILD")).body).toEqual([]);
     expect((await request(app).get("/api/facilities?search=ALP")).body).toHaveLength(2);
     expect((await request(app).get("/api/facilities?search=_")).body).toEqual([]);
@@ -247,7 +246,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     ]);
     expect(res.body).not.toHaveProperty("availablePeriods");
     expect(res.body).toMatchObject({ facilityId: f, borrowerName: "acme", periodEnd: P2, excludedCount: 1, divergencePts: "3", divergenceFlag: "FLAGGED" });
-    expect(res.body.rows.map((r: { bdcName: string }) => r.bdcName)).toEqual(["Alpha BDC", "Beta BDC"]); // included only, sorted by bdcName
+    expect(res.body.rows.map((r) => r.bdcName)).toEqual(["Alpha BDC", "Beta BDC"]); // included only, sorted by bdcName
     for (const r of res.body.rows) {
       expect(Object.keys(r)).toEqual([
         "bdcName", "spreadBps", "fairValuePctPar", "principal", "sourceUrl", "costPctPar", "fvPctCost", "floorBps", "pikBps", "maturityDate", "nonAccrual",
@@ -280,7 +279,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     const [alpha, beta] = res.body.rows;
     expect(alpha).toMatchObject({ bdcName: "Alpha BDC", spreadBps: "525", costPctPar: "99.5", fvPctCost: "98.5", floorBps: "50", pikBps: "25", maturityDate: "2030-01-31", nonAccrual: true });
     expect(beta).toMatchObject({ bdcName: "Beta BDC", spreadBps: "500", costPctPar: null, fvPctCost: null, floorBps: null, pikBps: null, maturityDate: null, nonAccrual: null });
-    const e4 = (await request(app).get("/api/facilities")).body.find((x: { facilityId: number }) => x.facilityId === f);
+    const e4 = (await request(app).get("/api/facilities")).body.find((x) => x.facilityId === f);
     expect(e4.signalCount).toBe(2);
   });
 
@@ -337,7 +336,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
   });
 
   // ------------------------------------------------------------------ E6
-  async function pair(a: number, b: number, score: string, status: string) {
+  async function pair(a, b, score, status) {
     const [x, y] = a < b ? [a, b] : [b, a];
     await pool.query(`INSERT INTO candidate_pairs (holding_id_a, holding_id_b, score, status) VALUES ($1, $2, $3, $4)`, [x, y, score, status]);
   }
@@ -359,13 +358,13 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
 
     const res = await request(app).get("/api/review-queue");
     expect(res.status).toBe(200);
-    expect(res.body.map((i: { type: string }) => i.type)).toEqual(["cluster", "pair", "pair", "pair"]);
+    expect(res.body.map((i) => i.type)).toEqual(["cluster", "pair", "pair", "pair"]);
     const cluster = res.body[0];
     expect(Object.keys(cluster)).toEqual(["type", "clusterId", "periodEnd", "reason", "holdings", "pairs"]);
     expect(cluster).toMatchObject({ clusterId: cl, periodEnd: P2, reason: "SAME_BDC_COLLISION" });
-    expect(cluster.holdings.map((h: { holdingId: number }) => h.holdingId)).toEqual([c1, c2, c3]);
+    expect(cluster.holdings.map((h) => h.holdingId)).toEqual([c1, c2, c3]);
     expect(Object.keys(cluster.holdings[0])).toEqual(["holdingId", "bdcName", "rawName", "instrumentType", "maturityDate", "spreadBps", "sourceUrl"]);
-    expect(cluster.pairs.map((p: { holdingIdA: number; holdingIdB: number; status: string }) => [p.holdingIdA, p.holdingIdB, p.status])).toEqual([
+    expect(cluster.pairs.map((p) => [p.holdingIdA, p.holdingIdB, p.status])).toEqual([
       [c1, c3, "AUTO"], [c2, c3, "CONFIRMED"],
     ]);
     const pairs = res.body.slice(1);
@@ -373,18 +372,18 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
       "type", "periodEnd", "holdingIdA", "holdingIdB", "rawNameA", "rawNameB", "score", "instrumentType", "maturityDateA", "maturityDateB",
       "spreadBpsA", "spreadBpsB", "sourceUrlA", "sourceUrlB",
     ]);
-    expect(pairs.map((p: { score: string }) => Number(p.score))).toEqual([0.9167, 0.85, 0.81]); // NO_MATCH and AUTO pairs are not listed
+    expect(pairs.map((p) => Number(p.score))).toEqual([0.9167, 0.85, 0.81]); // NO_MATCH and AUTO pairs are not listed
     expect(pairs[1]).toMatchObject({ rawNameA: "Pair One A", rawNameB: "Pair One B", spreadBpsA: "500", spreadBpsB: "510", maturityDateA: "2030-01-31" });
   });
 
   it("pairs and clusters of another period are neither listed by E6 nor counted by E1 pendingReviewCount (measured period only)", async () => {
     await seedFilings();
-    const mk = async (period: string, tag: string) => ({
+    const mk = async (period, tag) => ({
       a: await holding(0, `${tag} A`, { period }), b: await holding(1, `${tag} B`, { period }),
       c: await holding(0, `${tag} C`, { period }), d: await holding(0, `${tag} D`, { period }), e: await holding(1, `${tag} E`, { period }),
     });
     const m = await mk(P2, "Measured"), o = await mk(P1, "Prior");
-    for (const [x, period] of [[m, P2], [o, P1]] as const) {
+    for (const [x, period] of [[m, P2], [o, P1]]) {
       await pair(x.a, x.b, period === P2 ? "0.85" : "0.9", "REVIEW");
       const cl = (await pool.query(`INSERT INTO review_clusters (period_end_date, reason) VALUES ($1, 'SAME_BDC_COLLISION') RETURNING cluster_id`, [period])).rows[0].cluster_id;
       for (const h of [x.c, x.d, x.e]) await pool.query(`INSERT INTO review_cluster_members (cluster_id, holding_id) VALUES ($1, $2)`, [cl, h]);
@@ -394,9 +393,9 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     // a pair that spans two periods cannot be a candidate, but it must not be listed even if one were stored
     await pair(m.c, o.e, "0.88", "REVIEW");
     const queue = await request(app).get("/api/review-queue");
-    expect(queue.body.map((i: { type: string }) => i.type)).toEqual(["cluster", "pair"]);
-    expect(queue.body.every((i: { periodEnd: string }) => i.periodEnd === P2)).toBe(true);
-    expect(queue.body[0].holdings.map((h: { holdingId: number }) => h.holdingId)).toEqual([m.c, m.d, m.e]);
+    expect(queue.body.map((i) => i.type)).toEqual(["cluster", "pair"]);
+    expect(queue.body.every((i) => i.periodEnd === P2)).toBe(true);
+    expect(queue.body[0].holdings.map((h) => h.holdingId)).toEqual([m.c, m.d, m.e]);
     expect(queue.body[0].pairs).toHaveLength(2);
     expect(queue.body[1]).toMatchObject({ holdingIdA: m.a, holdingIdB: m.b });
     const overview = await request(app).get("/api/overview");
@@ -404,7 +403,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     // the filter follows MEASURED_PERIOD_END: the same data seen from the other quarter
     const other = createApp({ pool, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: P1 });
     const q1 = await request(other).get("/api/review-queue");
-    expect(q1.body.map((i: { type: string; periodEnd: string }) => [i.type, i.periodEnd])).toEqual([["cluster", P1], ["pair", P1]]);
+    expect(q1.body.map((i) => [i.type, i.periodEnd])).toEqual([["cluster", P1], ["pair", P1]]);
     expect((await request(other).get("/api/overview")).body.pendingReviewCount).toBe(2);
   });
 
@@ -413,15 +412,15 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
   });
 
   // ------------------------------------------------------------------ E7 and E8 (test 13)
-  async function statusOf(a: number, b: number) {
-    return (await pool.query(`SELECT status FROM candidate_pairs WHERE holding_id_a = $1 AND holding_id_b = $2`, [a, b])).rows[0].status as string;
+  async function statusOf(a, b) {
+    return (await pool.query(`SELECT status FROM candidate_pairs WHERE holding_id_a = $1 AND holding_id_b = $2`, [a, b])).rows[0].status;
   }
-  async function fresh(status: string) {
+  async function fresh(status) {
     if (filings.length === 0) await seedFilings(false);
     const a = await holding(0, "A" + ++hSeq), b = await holding(1, "B" + hSeq);
     const [x, y] = a < b ? [a, b] : [b, a];
     await pair(x, y, "0.85", status);
-    return [x, y] as const;
+    return [x, y];
   }
 
   it("E7 confirms a REVIEW pair in either id order and returns 409 from any other status (test 13)", async () => {
@@ -493,11 +492,11 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
         (await pool.query(`SELECT holding_id_a, holding_id_b, score FROM candidate_pairs ORDER BY 1, 2`)).rows,
       ]);
     const before = await snap();
-    const t0 = (await pool.query(`SELECT updated_at FROM candidate_pairs WHERE holding_id_a = $1`, [x])).rows[0].updated_at as Date;
+    const t0 = (await pool.query(`SELECT updated_at FROM candidate_pairs WHERE holding_id_a = $1`, [x])).rows[0].updated_at;
     await request(app).post(`/api/review-queue/${x}/${y}/confirm`);
     await request(app).post(`/api/review-queue/${x}/${y}/reject`);
     expect(await snap()).toBe(before);
-    expect(((await pool.query(`SELECT updated_at FROM candidate_pairs WHERE holding_id_a = $1`, [x])).rows[0].updated_at as Date).getTime()).toBeGreaterThanOrEqual(t0.getTime());
+    expect(((await pool.query(`SELECT updated_at FROM candidate_pairs WHERE holding_id_a = $1`, [x])).rows[0].updated_at).getTime()).toBeGreaterThanOrEqual(t0.getTime());
   });
 
   // ------------------------------------------------------------------ E10 and the standing rules
@@ -507,7 +506,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     await holding(0, "two");
     const res = await request(app).get("/api/filings");
     expect(res.status).toBe(200);
-    expect(res.body.map((f: { bdcName: string; periodEnd: string }) => [f.bdcName, f.periodEnd])).toEqual([
+    expect(res.body.map((f) => [f.bdcName, f.periodEnd])).toEqual([
       ["Alpha BDC", P2], ["Beta BDC", P2], ["Gamma BDC", P2], ["Alpha BDC", P1],
     ]);
     expect(Object.keys(res.body[0])).toEqual(["bdcName", "cik", "formType", "periodEnd", "holdingsCount", "sourceUrl"]);
@@ -521,7 +520,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
 
   it("the API source never reads config.yaml", () => {
     const dir = join(__dirname, "..", "src");
-    for (const f of readdirSync(dir).filter((x) => x.endsWith(".ts"))) {
+    for (const f of readdirSync(dir).filter((x) => x.endsWith(".js"))) {
       const text = readFileSync(join(dir, f), "utf-8");
       expect(/config\.yaml|from "yaml"|require\("yaml"\)/.test(text), f).toBe(false);
     }

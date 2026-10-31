@@ -1,8 +1,8 @@
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { Pool } from "pg";
-import { createApp } from "../src/app";
-import { baseUrl, createScratch } from "./db";
+import { createApp } from "../src/app.js";
+import { baseUrl, createScratch } from "./db.js";
 
 // SPEC tests 15 and 24 for E11 and E12. The flag-off cases need no database. The flag-on cases run against a
 // scratch database created from DATABASE_URL (CI service container or the compose db on localhost) and dropped after.
@@ -11,7 +11,7 @@ const stub = {
   query: () => {
     throw new Error("the database must not be touched when labeling is off");
   },
-} as unknown as Pool;
+};
 
 describe("SPEC 24: flag off", () => {
   it("E11 and E12 are not mounted: 404 in the standard shape", async () => {
@@ -27,7 +27,7 @@ describe("SPEC 24: flag off", () => {
 
 const FORBIDDEN = ["score", "status", "band", "scoreband", "phase", "draworder", "draw_order", "score_band"];
 
-function keysDeep(x: unknown, out: string[] = []): string[] {
+function keysDeep(x, out= []) {
   if (Array.isArray(x)) x.forEach((v) => keysDeep(v, out));
   else if (x && typeof x === "object") {
     for (const [k, v] of Object.entries(x)) {
@@ -39,23 +39,23 @@ function keysDeep(x: unknown, out: string[] = []): string[] {
 }
 
 describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
-  let db: Awaited<ReturnType<typeof createScratch>>;
-  let pool: Pool;
-  let app: ReturnType<typeof createApp>;
-  let h: number[]; // holding ids
+  let db;
+  let pool;
+  let app;
+  let h; // holding ids
 
   async function addHolding(
-    filing: number,
-    raw: string,
-    norm: string,
-    cik: string,
-    extra: { industry?: string; footnotes?: string; period?: string } = {},
+    filing,
+    raw,
+    norm,
+    cik,
+    extra= {},
   ) {
     const r = await pool.query(
       `INSERT INTO raw_holdings (filing_id, portfolio_company_raw, source_url) VALUES ($1, $2, 'https://example.test') RETURNING holding_id`,
       [filing, raw],
     );
-    const id = r.rows[0].holding_id as number;
+    const id = r.rows[0].holding_id;
     await pool.query(
       `INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, industry, instrument_type_norm,
                                         spread_bps, maturity_date, footnotes, source_url)
@@ -66,7 +66,7 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
   }
 
   async function counts() {
-    const out: Record<string, number> = {};
+    const out= {};
     for (const t of ["raw_filings", "raw_holdings", "normalized_holdings", "candidate_pairs", "label_samples", "labeled_pairs", "band_sizes", "metric_results"]) {
       out[t] = (await pool.query(`SELECT COUNT(*)::int AS n FROM ${t}`)).rows[0].n;
     }
@@ -114,13 +114,13 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
     );
   });
 
-  async function sample(phase: string, a: number, b: number, order: number, band: string | null = null) {
+  async function sample(phase, a, b, order, band= null) {
     return (
       await pool.query(
         `INSERT INTO label_samples (holding_id_a, holding_id_b, phase, score_band, draw_order) VALUES ($1, $2, $3, $4, $5) RETURNING sample_id`,
         [a, b, phase, band, order],
       )
-    ).rows[0].sample_id as number;
+    ).rows[0].sample_id;
   }
 
   it("E11 returns the contract shape, with cross filing names that exclude A and B and are distinct", async () => {
@@ -192,7 +192,7 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
     const oot = await sample("OUTOFTIME", h[4], h[5], 1, "JUST_BELOW");
     const held = await sample("HELDOUT", h[0], h[1], 2, "AUTO");
     let res = await request(app).get("/api/label/next");
-    expect(res.body.sampleId).toBe(held);                                   // HELDOUT first although its draw order is larger
+    expect(res.body.sampleId).toBe(held); // HELDOUT first although its draw order is larger
     expect(res.body.progress).toEqual({ labeled: 0, total: 1 });
     await request(app).post("/api/label").send({ sampleId: held, label: "MATCH", labeledBy: "t" });
     res = await request(app).get("/api/label/next");
@@ -275,7 +275,7 @@ describe.skipIf(!baseUrl)("SPEC 24 and 15: flag on", () => {
       { sampleId: sid, label: "MAYBE", labeledBy: "me" },
       { sampleId: sid, labeledBy: "me" },
       { sampleId: "1", label: "MATCH", labeledBy: "me" },
-      { sampleId: sid, label: "MATCH", labeledBy: "  " },
+      { sampleId: sid, label: "MATCH", labeledBy: " " },
       { sampleId: sid, label: "MATCH" },
     ];
     for (const body of bad) {

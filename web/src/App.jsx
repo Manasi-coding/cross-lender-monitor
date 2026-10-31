@@ -1,14 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useState, type FormEvent } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
-import { getJson } from "./api";
-import type { Overview } from "./types";
+import { getJson } from "./api.js";
 
-// The shell loads E1 once and shares it: sidebar footer counts, the Review badge and measuredPeriodEnd for the period tag.
-type Shared = { overview: Overview | null; refresh: () => void };
-const Ctx = createContext<Shared>({ overview: null, refresh: () => {} });
+const Ctx = createContext({ overview: null, refresh: () => {} });
 export const useShared = () => useContext(Ctx);
 
-const NAV: [string, string][] = [
+const NAV = [
   ["/", "Overview"],
   ["/borrowers", "Borrowers"],
   ["/facilities", "Triage"],
@@ -17,7 +14,7 @@ const NAV: [string, string][] = [
   ["/filings", "Filings"],
 ];
 
-function readTheme(): string {
+function readTheme() {
   try {
     return window.localStorage.getItem("theme") ?? "light";
   } catch {
@@ -26,14 +23,14 @@ function readTheme(): string {
 }
 
 export default function App() {
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const [overview, setOverview] = useState(null);
   const [failed, setFailed] = useState(false);
   const [theme, setTheme] = useState(readTheme);
   const [q, setQ] = useState("");
   const navigate = useNavigate();
 
   const refresh = useCallback(() => {
-    getJson<Overview>("/api/overview").then(
+    getJson("/api/overview").then(
       (o) => {
         setOverview(o);
         setFailed(false);
@@ -52,7 +49,7 @@ export default function App() {
     }
   }, [theme]);
 
-  const search = (e: FormEvent) => {
+  const search = (e) => {
     e.preventDefault();
     navigate(q.trim() ? `/borrowers?search=${encodeURIComponent(q.trim())}` : "/borrowers");
   };

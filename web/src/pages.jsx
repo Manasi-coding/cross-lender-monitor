@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { ApiFailure, getJson } from "./api";
-import { useShared } from "./App";
-import { Card, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, useFetch } from "./components";
-import { NOT_YET, typeName, usd } from "./format";
-import type { BorrowerFacilities, BorrowerRow, Filing } from "./types";
-
-export function useDebounced<T>(value: T, ms = 300): T {
+import { ApiFailure, getJson } from "./api.js";
+import { useShared } from "./App.jsx";
+import { Card, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, useFetch } from "./components.jsx";
+import { NOT_YET, typeName, usd } from "./format.js";
+export function useDebounced(value, ms = 300) {
   const [v, setV] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setV(value), ms);
@@ -15,7 +13,7 @@ export function useDebounced<T>(value: T, ms = 300): T {
   return v;
 }
 
-const share = (n: number, total: number) => (total === 0 ? NOT_YET : `${((n / total) * 100).toFixed(1)}%`);
+const share = (n, total) => (total === 0 ? NOT_YET : `${((n / total) * 100).toFixed(1)}%`);
 
 // ------------------------------------------------------------------ 4.1 Overview
 export function OverviewPage() {
@@ -66,7 +64,7 @@ export function BorrowersPage() {
   const urlSearch = params.get("search") ?? "";
   useEffect(() => setText(urlSearch), [urlSearch]);
   const q = useDebounced(text.trim());
-  const f = useFetch(() => getJson<BorrowerRow[]>("/api/borrowers", { search: q || undefined }), [q]);
+  const f = useFetch(() => getJson("/api/borrowers", { search: q || undefined }), [q]);
   const { overview } = useShared();
   return (
     <>
@@ -108,7 +106,7 @@ export function BorrowersPage() {
 // ------------------------------------------------------------------ 4.3 Borrower detail
 export function BorrowerDetailPage() {
   const { id = "" } = useParams();
-  const f = useFetch(() => getJson<BorrowerFacilities>(`/api/borrowers/${encodeURIComponent(id)}/facilities`), [id]);
+  const f = useFetch(() => getJson(`/api/borrowers/${encodeURIComponent(id)}/facilities`), [id]);
   const { overview } = useShared();
   if (f.state === "error" && f.error instanceof ApiFailure && f.error.status === 404) {
     return (
@@ -146,7 +144,7 @@ export function BorrowerDetailPage() {
 
 // ------------------------------------------------------------------ 4.8 Filings
 export function FilingsPage() {
-  const f = useFetch(() => getJson<Filing[]>("/api/filings"), []);
+  const f = useFetch(() => getJson("/api/filings"), []);
   const [filter, setFilter] = useState("");
   const { overview } = useShared();
   return (

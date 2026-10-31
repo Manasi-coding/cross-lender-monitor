@@ -1,11 +1,9 @@
-import { getJson } from "./api";
-import { BandTable, Card, Load, PageTitle, RangeStat, ci, useFetch } from "./components";
-import { NOT_YET, SIGNAL_TEXT, pct } from "./format";
-import type { Metrics } from "./types";
-
+import { getJson } from "./api.js";
+import { BandTable, Card, Load, PageTitle, RangeStat, ci, useFetch } from "./components.jsx";
+import { NOT_YET, SIGNAL_TEXT, pct } from "./format.js";
 // 4.7 Metrics. Every null field reads "Not yet measured" on its own. The held-out evaluation and the out-of-time report are shown
 // separately and never pooled. No figure includes review-queue confirmations.
-const FIELD_TEXT: Record<string, string> = {
+const FIELD_TEXT = {
   costPctPar: "Cost % of par",
   fvPctCost: "FV % of cost",
   spreadBps: "Spread",
@@ -15,7 +13,7 @@ const FIELD_TEXT: Record<string, string> = {
 };
 
 export function MetricsPage() {
-  const f = useFetch(() => getJson<Metrics>("/api/metrics"), []);
+  const f = useFetch(() => getJson("/api/metrics"), []);
   return (
     <>
       <PageTitle sub="Held out evaluation of the matcher on the measured quarter. Recall is given blocking. No figure includes review queue confirmations.">Metrics</PageTitle>
@@ -24,7 +22,7 @@ export function MetricsPage() {
   );
 }
 
-function Body({ m }: { m: Metrics }) {
+function Body({ m }) {
   const review = m.bands?.find((b) => b.name === "REVIEW") ?? null;
   return (
     <div className="space-y-6">

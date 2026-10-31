@@ -39,15 +39,15 @@ One line per file. Matcher files are frozen (see DECISIONS.md): normalize.py, bl
 - 001 to 005: raw, staged, curated and evaluation tables, indexes. 006: filing hashes. 007: normalized flags. 008: currency source. 009: exposure_usd. 010: draw records. 011: evidence dossier. 012: history tables.
 
 ## API (`api/`)
-- src/index.ts: starts the server. src/app.ts: builds the app and mounts routes. src/errors.ts: the error shape and input parsing.
-- src/facilities.ts: E1 to E5. src/review.ts: E6 to E8. src/metrics.ts: E9. src/labeling.ts: E11 and E12 (flag gated).
-- tests/: read.test.ts (E1 to E8, E10), metrics.test.ts (E9), labeling.test.ts (E11, E12), contract.test.ts (error matrix), app.test.ts (error shape), db.ts (scratch databases).
-- Dockerfile, package.json, package-lock.json, tsconfig.json, vitest.config.mts: build and test setup.
+- src/index.js: starts the server. src/app.js: builds the app and mounts routes. src/errors.js: the error shape and input parsing.
+- src/facilities.js: E1 to E5. src/review.js: E6 to E8. src/metrics.js: E9. src/labeling.js: E11 and E12 (flag gated).
+- tests/: read.test.js (E1 to E8, E10), metrics.test.js (E9), labeling.test.js (E11, E12), contract.test.js (error matrix), app.test.js (error shape), db.js (scratch databases).
+- Dockerfile, package.json, package-lock.json, vitest.config.js: run and test setup (plain Node, no build step).
 
 ## Web (`web/`)
-- src/main.tsx: routes. src/App.tsx: the shell, sidebar, search and theme. src/api.ts: the fetch wrapper. src/format.ts: display rounding and the null wording. src/types.ts: mirrors CONTRACT.md.
-- src/components.tsx: shared cards, tags, tables and the two inline SVG charts. src/pages.tsx: Overview, Borrowers, Borrower detail, Filings. src/triage.tsx: Triage and Facility comparison. src/review.tsx: Review queue. src/metrics.tsx: Metrics. src/Label.tsx: the dev only labeling page.
-- Dockerfile, nginx.conf, vite.config.ts, tsconfig.json, package.json, package-lock.json, index.html: build and serve.
+- src/main.jsx: routes. src/App.jsx: the shell, sidebar, search and theme. src/api.js: the fetch wrapper. src/format.js: display rounding and the null wording. src/types.js: JSDoc typedefs of the API shapes, documentation only (CONTRACT.md is the source of truth).
+- src/components.jsx: shared cards, tags, tables and the two inline SVG charts. src/pages.jsx: Overview, Borrowers, Borrower detail, Filings. src/triage.jsx: Triage and Facility comparison. src/review.jsx: Review queue. src/metrics.jsx: Metrics. src/Label.jsx: the dev only labeling page.
+- Dockerfile, nginx.conf, vite.config.js, package.json, package-lock.json, index.html: build and serve.
 
 ## Tests (`tests/`, pytest)
 - test_normalize.py, test_match.py, test_currency.py: the matcher. test_idempotency.py, test_schema_drift.py, test_ads_join.py, test_hps_q1_join.py, test_ingest_hashes.py, test_sec_client.py, test_second_period.py: ingest.

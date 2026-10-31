@@ -1,12 +1,12 @@
 import request from "supertest";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import type { Pool } from "pg";
-import { createApp } from "../src/app";
-import { baseUrl, createScratch } from "./db";
+
+import { createApp } from "../src/app.js";
+import { baseUrl, createScratch } from "./db.js";
 
 // E9 (SPEC tests 23 and 38). The label-derived payload is written directly, as evaluate.py would write it.
 const P2 = "2026-06-30";
-const ci = (value: number, n: number) => ({ value, low: value - 0.05, high: Math.min(1, value + 0.05), n });
+const ci = (value, n) => ({ value, low: value - 0.05, high: Math.min(1, value + 0.05), n });
 const PAYLOAD = {
   precisionAutoOnly: { unsureAsNoMatch: ci(0.9, 60), unsureAsMatch: ci(1, 60), unsureExcluded: ci(1, 55) },
   precisionReviewBand: null,
@@ -23,9 +23,9 @@ const PAYLOAD = {
 const LABEL_FIELDS = ["precisionAutoOnly", "precisionReviewBand", "precisionIfReviewAutoAccepted", "recallAutoOnly", "recallIfReviewAutoAccepted", "blockingRecall", "bands", "unsureCount", "heldOutCount", "outOfTime"];
 
 describe.skipIf(!baseUrl)("E9", () => {
-  let db: Awaited<ReturnType<typeof createScratch>>;
-  let pool: Pool;
-  let app: ReturnType<typeof createApp>;
+  let db;
+  let pool;
+  let app;
 
   beforeAll(async () => {
     db = await createScratch("test_metrics");
@@ -87,7 +87,7 @@ describe.skipIf(!baseUrl)("E9", () => {
     expect((await request(app).get("/api/metrics")).body.historyLinks).toBeNull();
     await pool.query(`INSERT INTO history_build (build_id, prior_period_end, period_end_date, current_holdings, linked) VALUES (1, '2026-03-31', $1, 4, 1)`, [P2]);
     let hl = (await request(app).get("/api/metrics")).body.historyLinks;
-    expect(hl).toEqual({ priorPeriodEnd: "2026-03-31", linkedShare: null, precision: null });   // no compared holdings: no share to report
+    expect(hl).toEqual({ priorPeriodEnd: "2026-03-31", linkedShare: null, precision: null }); // no compared holdings: no share to report
   });
 
   it("test 38: evidenceLift and fieldCoverage appear before evaluate.py, are live, and flipping candidate_pairs.status changes nothing", async () => {
@@ -98,7 +98,7 @@ describe.skipIf(!baseUrl)("E9", () => {
     await pool.query(`INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, accession_number, source_url) VALUES ('1', 'Alpha', '10-Q', $1, $1, 'a', 'u'), ('2', 'Beta', '10-Q', $1, $1, 'b', 'u')`, [P2]);
     await pool.query(`INSERT INTO canonical_borrowers (canonical_name, period_end_date) VALUES ('b', $1)`, [P2]);
     // 3 FLAGGED facilities (2 with NON_ACCRUAL, 1 with none) and 2 AGREEMENT facilities (none with a signal)
-    const rows: [string, string[]][] = [["FLAGGED", ["NON_ACCRUAL"]], ["FLAGGED", ["NON_ACCRUAL", "SPREAD_DIFFERS"]], ["FLAGGED", []], ["AGREEMENT", []], ["AGREEMENT", []]];
+    const rows= [["FLAGGED", ["NON_ACCRUAL"]], ["FLAGGED", ["NON_ACCRUAL", "SPREAD_DIFFERS"]], ["FLAGGED", []], ["AGREEMENT", []], ["AGREEMENT", []]];
     for (const [i, [flag, codes]] of rows.entries()) {
       await pool.query(`INSERT INTO canonical_facilities (canonical_borrower_id, period_end_date, instrument_type_norm) VALUES (1, $1, 'FIRST_LIEN')`, [P2]);
       await pool.query(
@@ -116,12 +116,12 @@ describe.skipIf(!baseUrl)("E9", () => {
       }
     }
     const before = (await request(app).get("/api/metrics")).body;
-    const lift = Object.fromEntries(before.evidenceLift.map((r: { code: string }) => [r.code, r]));
+    const lift = Object.fromEntries(before.evidenceLift.map((r) => [r.code, r]));
     expect(lift.NON_ACCRUAL).toEqual({ code: "NON_ACCRUAL", flaggedShare: 0.666667, flaggedN: 3, agreementShare: 0, agreementN: 2 });
     expect(lift.SPREAD_DIFFERS.flaggedShare).toBe(0.333333);
-    expect(before.evidenceLift.map((r: { code: string }) => r.code)).toHaveLength(7);
+    expect(before.evidenceLift.map((r) => r.code)).toHaveLength(7);
     expect(before.unexplained).toEqual({ share: 0.333333, withoutSignal: 1, flaggedN: 3 });
-    const fc = before.fieldCoverage.filter((r: { field: string }) => r.field === "floorBps");
+    const fc = before.fieldCoverage.filter((r) => r.field === "floorBps");
     expect(fc).toEqual([
       { field: "floorBps", bdcName: "Alpha", parsedShare: 1, n: 5 },
       { field: "floorBps", bdcName: "Beta", parsedShare: 0, n: 5 },

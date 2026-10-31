@@ -150,7 +150,7 @@ flowchart LR
   API --> WEB[React app]
 ```
 
-- Python 3.11 pipeline run as `python -m pipeline.<module>`, never imported by the API. Node 24, Express 5 and TypeScript for the API, React 19 and Tailwind for the web app, Postgres 16, Docker Compose v2. No ORM: parameterized SQL only.
+- Python 3.11 pipeline run as `python -m pipeline.<module>`, never imported by the API. Node 24, Express 5 and plain JavaScript (ES modules) for the API, React 19 and Tailwind for the web app, Postgres 16, Docker Compose v2. No ORM: parameterized SQL only.
 - Config lives in `pipeline/config.yaml`; secrets and `MEASURED_PERIOD_END` in `.env`. The matcher hash covers the normalization, blocking, scoring, bands and filers sections and the four matcher source files.
 - Write surface: E7 and E8 update `candidate_pairs.status` only, and a Confirm or Reject changes no curated table until `compare.py` is re-run. E12 writes `labeled_pairs` only and is mounted only when `ENABLE_LABELING=true` (default false).
 - Schema: 23 tables, summarized in `SPEC.md` section 6. Raw (`raw_filings`, `raw_holdings`), staged (`normalized_holdings`, `blocking_keys`, `candidate_pairs`), curated (`canonical_borrowers`, `canonical_facilities`, `holding_facility_map`, `facility_comparisons`, `facility_summary`, `review_clusters`, `review_cluster_members`, `facility_history`, `holding_history_links`, `history_build`), evaluation (`matcher_freeze`, `label_samples`, `band_sizes`, `outoftime_band_sizes`, `labeled_pairs`, `blocking_recall_checks`, `history_link_checks`, `metric_results`) and `schema_migrations`.

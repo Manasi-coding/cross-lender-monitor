@@ -1,5 +1,4 @@
-import express, { Express, Request, Response } from "express";
-import type { Pool } from "pg";
+import express from "express";
 
 // E11 and E12 (CONTRACT.md). Mounted by createApp only when ENABLE_LABELING=true.
 // E11 reads only label_samples, labeled_pairs, normalized_holdings and raw_holdings, and never selects a score,
@@ -8,22 +7,12 @@ import type { Pool } from "pg";
 
 const LABELS = ["MATCH", "NO_MATCH", "UNSURE"];
 
-function sendError(res: Response, status: number, code: string, message: string) {
+function sendError(res, status, code, message) {
   res.status(status).json({ error: { code, message } });
 }
 
-type HoldingRow = {
-  rawName: string | null;
-  instrumentType: string;
-  maturityDate: string | null;
-  spreadBps: string | null;
-  industry: string | null;
-  footnotes: string | null;
-  borrowerNormalized: string;
-};
-
-async function holding(pool: Pool, id: number, pairIds: number[]) {
-  const { rows } = await pool.query<HoldingRow>(
+async function holding(pool, id, pairIds) {
+  const { rows } = await pool.query (
     `SELECT r.portfolio_company_raw AS "rawName",
             n.instrument_type_norm AS "instrumentType",
             to_char(n.maturity_date, 'YYYY-MM-DD') AS "maturityDate",
@@ -39,7 +28,7 @@ async function holding(pool: Pool, id: number, pairIds: number[]) {
   const h = rows[0];
   // Other holdings, in any ingested filing of the same period as the pair, with exactly this normalized borrower name.
   // Exact equality, no scoring. Rows of another quarter never appear as evidence.
-  const names = await pool.query<{ name: string }>(
+  const names = await pool.query (
     `SELECT DISTINCT r.portfolio_company_raw AS name
        FROM normalized_holdings n
        JOIN raw_holdings r ON r.holding_id = n.holding_id
@@ -62,10 +51,10 @@ async function holding(pool: Pool, id: number, pairIds: number[]) {
   };
 }
 
-export function registerLabeling(app: Express, pool: Pool) {
+export function registerLabeling(app, pool) {
   // E11 GET /api/label/next
-  app.get("/api/label/next", async (_req: Request, res: Response) => {
-    const next = await pool.query<{ sample_id: number; phase: string; holding_id_a: number; holding_id_b: number }>(
+  app.get("/api/label/next", async (_req, res) => {
+    const next = await pool.query (
       `SELECT s.sample_id, s.phase, s.holding_id_a, s.holding_id_b
          FROM label_samples s
         WHERE NOT EXISTS (SELECT 1 FROM labeled_pairs l WHERE l.sample_id = s.sample_id)
@@ -78,7 +67,7 @@ export function registerLabeling(app: Express, pool: Pool) {
     }
     const s = next.rows[0];
     // progress counts the phase being served; the phase itself is not sent
-    const progress = await pool.query<{ labeled: number; total: number }>(
+    const progress = await pool.query (
       `SELECT COUNT(l.sample_id)::int AS labeled, COUNT(*)::int AS total
          FROM label_samples s
          LEFT JOIN labeled_pairs l ON l.sample_id = s.sample_id
@@ -95,8 +84,8 @@ export function registerLabeling(app: Express, pool: Pool) {
   });
 
   // E12 POST /api/label. The server derives everything except sampleId, label and labeledBy.
-  app.post("/api/label", express.json(), async (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
+  app.post("/api/label", express.json(), async (req, res) => {
+    const body = (req.body ?? {});
     const { sampleId, label, labeledBy } = body;
     if (typeof label !== "string" || !LABELS.includes(label)) {
       sendError(res, 400, "BAD_REQUEST", "label must be MATCH, NO_MATCH or UNSURE.");
@@ -110,7 +99,7 @@ export function registerLabeling(app: Express, pool: Pool) {
       sendError(res, 400, "BAD_REQUEST", "labeledBy is required.");
       return;
     }
-    const { rows } = await pool.query<{ sampleId: number; label: string; labeledAt: Date }>(
+    const { rows } = await pool.query (
       `INSERT INTO labeled_pairs (sample_id, holding_id_a, holding_id_b, label, labeled_by, sampling_method, score_band)
        SELECT s.sample_id, s.holding_id_a, s.holding_id_b, $2, $3,
               CASE s.phase WHEN 'TUNING' THEN 'BLOCKED' WHEN 'HELDOUT' THEN 'STRATIFIED' WHEN 'OUTOFTIME' THEN 'STRATIFIED' END, s.score_band

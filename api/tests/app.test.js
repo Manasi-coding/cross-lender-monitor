@@ -1,14 +1,14 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import type { Pool } from "pg";
-import { createApp } from "../src/app";
+
+import { createApp } from "../src/app.js";
 
 // The skeleton tests need no database: the pool is a stub that must never be called.
 const pool = {
   query: () => {
     throw new Error("the database must not be touched by these tests");
   },
-} as unknown as Pool;
+};
 
 describe("error shape", () => {
   it("returns { error: { code, message } } for a route that is not mounted (E11 with the flag off)", async () => {

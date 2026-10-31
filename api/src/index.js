@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { createApp } from "./app";
+import { createApp } from "./app.js";
 
 // MEASURED_PERIOD_END is required: E1 returns it, and the UI marks any row from another period as outside the measured set.
 const measuredPeriodEnd = process.env.MEASURED_PERIOD_END ?? "";

@@ -1,6 +1,3 @@
-import type { Express, Request, Response } from "express";
-import type { Pool } from "pg";
-
 // E9 GET /api/metrics (CONTRACT.md). Every label-derived field comes from the newest metric_results row and is null until
 // evaluate.py has run. sensitivityTable and coverage are computed live from the curated tables. Nothing here reads
 // candidate_pairs, labeled_pairs or label_samples, so review-queue clicks and labels cannot move a number on their own.
@@ -17,12 +14,12 @@ const LABEL_FIELDS = [
   "unsureCount",
   "heldOutCount",
   "outOfTime",
-] as const;
+];
 
 const THRESHOLDS = [1, 2, 5];
 const SIGNALS = ["NON_ACCRUAL", "PIK_DIFFERS", "FLOOR_DIFFERS", "SPREAD_DIFFERS", "MATURITY_DIFFERS", "COST_BASIS_GAP", "RATE_TYPE_DIFFERS"];
 // Dossier fields reported in fieldCoverage. nonAccrual is a flag with no "not parsed" state, so it is not listed.
-const FIELDS: [string, string][] = [
+const FIELDS= [
   ["costPctPar", "cost_pct_par"],
   ["fvPctCost", "fv_pct_cost"],
   ["spreadBps", "spread_bps_total"],
@@ -32,18 +29,18 @@ const FIELDS: [string, string][] = [
 ];
 
 // 95% Wilson interval, the same formula as evaluate.py (z = 1.96), for the hand check of the history link.
-function wilson(k: number, n: number) {
+function wilson(k, n) {
   if (n === 0) return null;
   const z = 1.96;
   const p = k / n;
   const d = 1 + (z * z) / n;
   const c = (p + (z * z) / (2 * n)) / d;
   const h = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
-  const r = (x: number) => Math.round(x * 1e6) / 1e6;
+  const r = (x) => Math.round(x * 1e6) / 1e6;
   return { value: r(p), low: r(Math.max(0, c - h)), high: r(Math.min(1, c + h)), n };
 }
 
-async function historyLinks(pool: Pool) {
+async function historyLinks(pool) {
   const built = await pool.query(`SELECT to_char(prior_period_end, 'YYYY-MM-DD') AS d FROM history_build`);
   if (built.rows.length === 0) return null;
   const [linked, checks] = await Promise.all([
@@ -53,16 +50,16 @@ async function historyLinks(pool: Pool) {
     ),
     pool.query(`SELECT label, COUNT(*)::int AS n FROM history_link_checks GROUP BY label`),
   ]);
-  const c = Object.fromEntries(checks.rows.map((r) => [r.label, r.n])) as Record<string, number>;
+  const c = Object.fromEntries(checks.rows.map((r) => [r.label, r.n]));
   const [m, no, u] = [c.MATCH ?? 0, c.NO_MATCH ?? 0, c.UNSURE ?? 0];
   const precision = m + no + u === 0 ? null : { unsureAsNoMatch: wilson(m, m + no + u), unsureAsMatch: wilson(m + u, m + no + u), unsureExcluded: wilson(m, m + no) };
   return { priorPeriodEnd: built.rows[0].d, linkedShare: share(linked.rows[0].k, linked.rows[0].n), precision };
 }
 
-const share = (k: number, n: number) => (n === 0 ? null : Math.round((k / n) * 1e6) / 1e6);
+const share = (k, n) => (n === 0 ? null : Math.round((k / n) * 1e6) / 1e6);
 
 // Share of FLAGGED facilities that carry each signal against the share of AGREEMENT facilities, with both n. Descriptive only.
-async function evidenceLift(pool: Pool) {
+async function evidenceLift(pool) {
   const { rows } = await pool.query(
     `SELECT s.divergence_flag AS flag, COUNT(*)::int AS n, u.code, COUNT(*) FILTER (WHERE u.code = ANY(s.signal_codes))::int AS k
        FROM facility_summary s CROSS JOIN unnest($1::text[]) AS u(code)
@@ -70,7 +67,7 @@ async function evidenceLift(pool: Pool) {
     [SIGNALS],
   );
   if (rows.length === 0) return null;
-  const at = (flag: string, code: string) => rows.find((r) => r.flag === flag && r.code === code) ?? { n: 0, k: 0 };
+  const at = (flag, code) => rows.find((r) => r.flag === flag && r.code === code) ?? { n: 0, k: 0 };
   return SIGNALS.map((code) => {
     const f = at("FLAGGED", code);
     const a = at("AGREEMENT", code);
@@ -78,7 +75,7 @@ async function evidenceLift(pool: Pool) {
   });
 }
 
-async function unexplained(pool: Pool) {
+async function unexplained(pool) {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE cardinality(signal_codes) = 0)::int AS k FROM facility_summary WHERE divergence_flag = 'FLAGGED'`,
   );
@@ -87,7 +84,7 @@ async function unexplained(pool: Pool) {
 }
 
 // For each field and BDC, the share of compared holdings (those with a mark) where the field was parsed.
-async function fieldCoverage(pool: Pool) {
+async function fieldCoverage(pool) {
   const parts = FIELDS.map(([name, col]) => `SELECT '${name}' AS field, bdc_name, COUNT(*)::int AS n, COUNT(${col})::int AS k FROM facility_comparisons WHERE fair_value_pct_par IS NOT NULL GROUP BY bdc_name`);
   const { rows } = await pool.query(parts.join(" UNION ALL ") + ` ORDER BY 2, 1`);
   if (rows.length === 0) return null;
@@ -97,10 +94,10 @@ async function fieldCoverage(pool: Pool) {
     .map((r) => ({ field: r.field, bdcName: r.bdc_name, parsedShare: share(r.k, r.n), n: r.n }));
 }
 
-export function registerMetrics(app: Express, pool: Pool, measuredPeriodEnd: string) {
-  app.get("/api/metrics", async (_req: Request, res: Response) => {
+export function registerMetrics(app, pool, measuredPeriodEnd) {
+  app.get("/api/metrics", async (_req, res) => {
     const latest = await pool.query(`SELECT payload FROM metric_results ORDER BY metric_id DESC LIMIT 1`);
-    const payload: Record<string, unknown> | null = latest.rows[0]?.payload ?? null;
+    const payload= latest.rows[0]?.payload ?? null;
     const [summary, filings, holdings, facilities] = await Promise.all([
       pool.query(
         `SELECT COUNT(*)::int AS total, t.t AS "thresholdPts", COUNT(*) FILTER (WHERE s.divergence_pts >= t.t)::int AS "flaggedCount"
@@ -111,7 +108,7 @@ export function registerMetrics(app: Express, pool: Pool, measuredPeriodEnd: str
       pool.query(`SELECT COUNT(*)::int AS n FROM normalized_holdings WHERE period_end_date = $1`, [measuredPeriodEnd]),
       pool.query(`SELECT COUNT(*)::int AS n FROM canonical_facilities`),
     ]);
-    const body: Record<string, unknown> = {};
+    const body= {};
     for (const f of LABEL_FIELDS) body[f] = payload && f in payload ? payload[f] : null;
     body.sensitivityTable =
       summary.rows.length > 0 && summary.rows[0].total > 0

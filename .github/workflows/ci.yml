@@ -64,7 +64,6 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      - run: npm run build
       - run: npm test
 
   web-build:
@@ -78,7 +77,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - run: npm ci
-      # tsc --noEmit (typecheck) then vite build
+      # vite build
       - run: npm run build
 
   docker-build:

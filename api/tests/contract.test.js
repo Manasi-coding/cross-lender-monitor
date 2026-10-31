@@ -1,23 +1,23 @@
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Pool } from "pg";
-import { createApp } from "../src/app";
-import { baseUrl, createScratch } from "./db";
+
+import { createApp } from "../src/app.js";
+import { baseUrl, createScratch } from "./db.js";
 
 // Contract matrix for E1 to E12: the error statuses and codes every endpoint may return, input validation, the standard error shape,
-// and the flag-off behaviour of E11 and E12. Success shapes are covered in read.test.ts, metrics.test.ts and labeling.test.ts.
+// and the flag-off behaviour of E11 and E12. Success shapes are covered in read.test.js, metrics.test.js and labeling.test.js.
 const P2 = "2026-06-30";
-const shape = (body: { error?: { code: unknown; message: unknown } }) => {
+const shape = (body) => {
   expect(Object.keys(body)).toEqual(["error"]);
   expect(typeof body.error?.code).toBe("string");
   expect(typeof body.error?.message).toBe("string");
 };
 
 describe.skipIf(!baseUrl)("contract matrix E1 to E12", () => {
-  let db: Awaited<ReturnType<typeof createScratch>>;
-  let pool: Pool;
-  let off: ReturnType<typeof createApp>;
-  let on: ReturnType<typeof createApp>;
+  let db;
+  let pool;
+  let off;
+  let on;
 
   beforeAll(async () => {
     db = await createScratch("test_contract");
@@ -86,7 +86,7 @@ describe.skipIf(!baseUrl)("contract matrix E1 to E12", () => {
   });
 
   it("a wrong method on a known path and an unknown path are 404 NOT_FOUND in the standard shape", async () => {
-    for (const [method, path] of [["post", "/api/overview"], ["get", "/api/review-queue/1/2/confirm"], ["put", "/api/borrowers"], ["get", "/api/nope"], ["delete", "/api/metrics"]] as const) {
+    for (const [method, path] of [["post", "/api/overview"], ["get", "/api/review-queue/1/2/confirm"], ["put", "/api/borrowers"], ["get", "/api/nope"], ["delete", "/api/metrics"]]) {
       const res = await request(off)[method](path);
       expect(res.status, `${method} ${path}`).toBe(404);
       expect(res.body.error.code).toBe("NOT_FOUND");

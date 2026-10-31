@@ -1,6 +1,4 @@
-import type { Express, Request, Response } from "express";
-import type { Pool } from "pg";
-import { ApiError, likePattern, parseId } from "./errors";
+import { ApiError, likePattern, parseId } from "./errors.js";
 
 // E1 to E5 (CONTRACT.md). Read only, parameterized SQL, no config file. NUMERIC values leave as strings, as Postgres returns them.
 // [v2] fields built on Day 7: E1 flaggedExposureUsd, and E4 divergencePts, divergenceFlag, exposureUsd with the flag and sort parameters.
@@ -11,7 +9,7 @@ const FLAGS = ["AGREEMENT", "MILD", "FLAGGED"];
 const SORTS = ["borrower", "exposure"];
 
 // E5 history: null until link_history.py has run. Afterwards NO_PRIOR (no facility_history row) or the stored persistence, with each lender's prior mark.
-async function historyFor(pool: Pool, facilityId: number, rows: { holdingId: number; bdcName: string }[]) {
+async function historyFor(pool, facilityId, rows) {
   const built = await pool.query(`SELECT to_char(prior_period_end, 'YYYY-MM-DD') AS d FROM history_build`);
   if (built.rows.length === 0) return null;
   const [fh, marks] = await Promise.all([
@@ -26,14 +24,14 @@ async function historyFor(pool: Pool, facilityId: number, rows: { holdingId: num
       [rows.map((r) => r.holdingId)],
     ),
   ]);
-  const pct = new Map<number, string | null>(marks.rows.map((m) => [m.id as number, m.pct as string | null]));
+  const pct = new Map (marks.rows.map((m) => [m.id, m.pct]));
   const base = fh.rows[0] ?? { priorPeriodEnd: built.rows[0].d, persistence: "NO_PRIOR", priorDivergencePts: null, priorDivergenceFlag: null };
   return { ...base, rows: rows.map((r) => ({ bdcName: r.bdcName, priorFairValuePctPar: pct.get(r.holdingId) ?? null })) };
 }
 
-export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: string) {
+export function registerFacilities(app, pool, measuredPeriodEnd) {
   // E1 GET /api/overview
-  app.get("/api/overview", async (_req: Request, res: Response) => {
+  app.get("/api/overview", async (_req, res) => {
     const [filings, facilities, pending, split, exposure] = await Promise.all([
       pool.query(`SELECT COUNT(DISTINCT cik)::int AS "bdcCount", COUNT(DISTINCT period_end_date)::int AS "quarterCount" FROM raw_filings`),
       pool.query(`SELECT COUNT(*)::int AS n FROM canonical_facilities`),
@@ -49,7 +47,7 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
       pool.query(`SELECT divergence_flag AS flag, COUNT(*)::int AS n FROM facility_summary GROUP BY divergence_flag`),
       pool.query(`SELECT COALESCE(SUM(exposure_usd) FILTER (WHERE divergence_flag = 'FLAGGED'), 0) AS total FROM facility_summary`),
     ]);
-    const counts = new Map<string, number>(split.rows.map((r) => [r.flag as string, r.n as number]));
+    const counts = new Map (split.rows.map((r) => [r.flag, r.n]));
     const hasSummary = split.rows.length > 0;
     res.json({
       bdcCount: filings.rows[0].bdcCount,
@@ -70,7 +68,7 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
     (SELECT COUNT(*) FROM canonical_facilities f WHERE f.canonical_borrower_id = b.canonical_borrower_id)::int AS "facilityCount"`;
 
   // E2 GET /api/borrowers?search=
-  app.get("/api/borrowers", async (req: Request, res: Response) => {
+  app.get("/api/borrowers", async (req, res) => {
     const { rows } = await pool.query(
       `SELECT b.canonical_borrower_id AS "canonicalBorrowerId", b.canonical_name AS "canonicalName",
               to_char(b.period_end_date, 'YYYY-MM-DD') AS "periodEnd", ${borrowerCounts}
@@ -83,8 +81,8 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
   });
 
   // E3 GET /api/borrowers/:id/facilities
-  app.get("/api/borrowers/:id/facilities", async (req: Request, res: Response) => {
-    const id = parseId(req.params.id as string, "borrower id");
+  app.get("/api/borrowers/:id/facilities", async (req, res) => {
+    const id = parseId(req.params.id, "borrower id");
     const head = await pool.query(
       `SELECT b.canonical_borrower_id AS "canonicalBorrowerId", b.canonical_name AS "canonicalName",
               to_char(b.period_end_date, 'YYYY-MM-DD') AS "periodEnd", ${borrowerCounts}
@@ -104,7 +102,7 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
   });
 
   // E4 GET /api/facilities?search=&flag=&sort=
-  app.get("/api/facilities", async (req: Request, res: Response) => {
+  app.get("/api/facilities", async (req, res) => {
     const flag = req.query.flag;
     const sort = req.query.sort ?? "borrower";
     if (flag !== undefined && (typeof flag !== "string" || !FLAGS.includes(flag))) {
@@ -156,8 +154,8 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
   });
 
   // E5 GET /api/facilities/:id/comparison
-  app.get("/api/facilities/:id/comparison", async (req: Request, res: Response) => {
-    const id = parseId(req.params.id as string, "facility id");
+  app.get("/api/facilities/:id/comparison", async (req, res) => {
+    const id = parseId(req.params.id, "facility id");
     const head = await pool.query(
       `SELECT f.facility_id AS "facilityId", b.canonical_name AS "borrowerName",
               to_char(f.period_end_date, 'YYYY-MM-DD') AS "periodEnd", f.instrument_type_norm AS "instrumentType",

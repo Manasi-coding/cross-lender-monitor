@@ -1,20 +1,19 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router";
-import { ApiFailure, getJson } from "./api";
-import { useShared } from "./App";
-import { Banner, Card, DotPlot, EmptyState, EvidenceTable, ExposureTag, HistoryStrip, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, useFetch } from "./components";
-import { FLAG_TEXT, fixed, points, spreadRange, typeName } from "./format";
-import type { Comparison, FacilityItem } from "./types";
-import { useDebounced } from "./pages";
+import { ApiFailure, getJson } from "./api.js";
+import { useShared } from "./App.jsx";
+import { Banner, Card, DotPlot, EmptyState, EvidenceTable, ExposureTag, HistoryStrip, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, useFetch } from "./components.jsx";
+import { FLAG_TEXT, fixed, points, spreadRange, typeName } from "./format.js";
+import { useDebounced } from "./pages.jsx";
 
 // ------------------------------------------------------------------ 4.4 Triage (the Facilities page)
 export function TriagePage() {
-  const [view, setView] = useState<"flagged" | "all">("flagged");
+  const [view, setView] = useState("flagged");
   const [text, setText] = useState("");
   const q = useDebounced(text.trim());
   // only valid parameter values are ever sent: flag is FLAGGED or absent, sort is exposure or absent
   const f = useFetch(
-    () => getJson<FacilityItem[]>("/api/facilities", view === "flagged" ? { flag: "FLAGGED", sort: "exposure", search: q || undefined } : { search: q || undefined }),
+    () => getJson("/api/facilities", view === "flagged" ? { flag: "FLAGGED", sort: "exposure", search: q || undefined } : { search: q || undefined }),
     [view, q],
   );
   const { overview } = useShared();
@@ -23,7 +22,7 @@ export function TriagePage() {
       <PageTitle>Triage</PageTitle>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div role="group" aria-label="View">
-          {(["flagged", "all"] as const).map((v) => (
+          {(["flagged", "all"]).map((v) => (
             <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className={`border px-3 py-1 ${view === v ? "bg-gray-800 text-white dark:bg-gray-200 dark:text-black" : ""}`}>
               {v === "flagged" ? "Flagged" : "All"}
             </button>
@@ -67,7 +66,7 @@ export function TriagePage() {
 // ------------------------------------------------------------------ 4.5 Facility comparison
 export function ComparisonPage() {
   const { id = "" } = useParams();
-  const f = useFetch(() => getJson<Comparison>(`/api/facilities/${encodeURIComponent(id)}/comparison`), [id]);
+  const f = useFetch(() => getJson(`/api/facilities/${encodeURIComponent(id)}/comparison`), [id]);
   const { overview } = useShared();
   if (f.state === "error" && f.error instanceof ApiFailure && f.error.status === 404) {
     return (

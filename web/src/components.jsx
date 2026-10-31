@@ -1,14 +1,10 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { ApiFailure } from "./api";
-import { FLAG_TEXT, NOT_YET, PERSISTENCE_TEXT, SIGNAL_TEXT, fixed, pct, usd } from "./format";
-import type { Ci, ComparisonRow, MetricBand, Persistence, Range } from "./types";
+import { ApiFailure } from "./api.js";
+import { FLAG_TEXT, NOT_YET, PERSISTENCE_TEXT, SIGNAL_TEXT, fixed, pct, usd } from "./format.js";
 
-// ------------------------------------------------------------------ data loading: loading, error with retry, data
-export type Fetched<T> = { state: "loading" } | { state: "error"; error: ApiFailure | Error; retry: () => void } | { state: "ready"; data: T };
-
-export function useFetch<T>(load: () => Promise<T>, deps: unknown[]): Fetched<T> {
-  const [s, setS] = useState<Fetched<T>>({ state: "loading" });
+export function useFetch(load, deps) {
+  const [s, setS] = useState({ state: "loading" });
   const [tick, setTick] = useState(0);
   const retry = useCallback(() => setTick((t) => t + 1), []);
   useEffect(() => {
@@ -16,7 +12,7 @@ export function useFetch<T>(load: () => Promise<T>, deps: unknown[]): Fetched<T>
     setS({ state: "loading" });
     load().then(
       (data) => live && setS({ state: "ready", data }),
-      (error: Error) => live && setS({ state: "error", error, retry }),
+      (error) => live && setS({ state: "error", error, retry }),
     );
     return () => {
       live = false;
@@ -30,7 +26,7 @@ export function Skeleton() {
   return <div className="animate-pulse space-y-3" aria-busy="true" aria-label="Loading">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded bg-gray-200 dark:bg-gray-700" />)}</div>;
 }
 
-export function ErrorState({ error, retry }: { error: Error; retry: () => void }) {
+export function ErrorState({ error, retry }) {
   return (
     <div role="alert" className="rounded border border-red-600 p-4">
       <p className="font-semibold">Something went wrong.</p>
@@ -40,24 +36,24 @@ export function ErrorState({ error, retry }: { error: Error; retry: () => void }
   );
 }
 
-export function EmptyState({ children }: { children: ReactNode }) {
+export function EmptyState({ children }) {
   return <p className="rounded border border-dashed p-4">{children}</p>;
 }
 
 // Renders the four page states for one fetch.
-export function Load<T>({ f, children }: { f: Fetched<T>; children: (data: T) => ReactNode }) {
+export function Load({ f, children }) {
   if (f.state === "loading") return <Skeleton />;
   if (f.state === "error") return <ErrorState error={f.error} retry={f.retry} />;
   return <>{children(f.data)}</>;
 }
 
 // ------------------------------------------------------------------ cards and labels
-export function Card({ children, to, className = "" }: { children: ReactNode; to?: string; className?: string }) {
+export function Card({ children, to, className = "" }) {
   const body = <div className={`rounded border border-gray-400 p-4 ${className}`}>{children}</div>;
   return to ? <Link to={to} className="block hover:bg-gray-100 dark:hover:bg-gray-800">{body}</Link> : body;
 }
 
-export function StatCard({ label, value, to, note }: { label: string; value: ReactNode; to?: string; note?: string }) {
+export function StatCard({ label, value, to, note }) {
   return (
     <Card to={to}>
       <p className="text-sm">{label}</p>
@@ -67,15 +63,15 @@ export function StatCard({ label, value, to, note }: { label: string; value: Rea
   );
 }
 
-export function PeriodTag({ periodEnd, measured }: { periodEnd: string; measured: string | undefined }) {
+export function PeriodTag({ periodEnd, measured }) {
   return measured && periodEnd !== measured ? <span className="ml-2 rounded border px-2 text-xs">Outside measured quarter</span> : null;
 }
 
-export function SourceLink({ url, children = "View filing" }: { url: string; children?: ReactNode }) {
+export function SourceLink({ url, children = "View filing" }) {
   return <a className="underline" href={url} target="_blank" rel="noreferrer">{children}</a>;
 }
 
-export function Banner({ flag, points }: { flag: string; points: string }) {
+export function Banner({ flag, points }) {
   return (
     <div className="rounded border-2 border-gray-700 p-4" role="status">
       <p className="text-xl font-bold">{FLAG_TEXT[flag] ?? flag}</p>
@@ -84,7 +80,7 @@ export function Banner({ flag, points }: { flag: string; points: string }) {
   );
 }
 
-export function ExposureTag({ exposureUsd }: { exposureUsd: string }) {
+export function ExposureTag({ exposureUsd }) {
   return (
     <span>
       Exposure {usd(exposureUsd)}
@@ -93,31 +89,31 @@ export function ExposureTag({ exposureUsd }: { exposureUsd: string }) {
   );
 }
 
-export function SignalChip({ code }: { code: string }) {
+export function SignalChip({ code }) {
   return <span className="mr-1 inline-block rounded border px-2 text-sm">{SIGNAL_TEXT[code] ?? code}</span>;
 }
 
-export function PersistenceTag({ persistence }: { persistence: Persistence | null }) {
+export function PersistenceTag({ persistence }) {
   return <span className="rounded border px-2 text-sm">{persistence === null ? NOT_YET : PERSISTENCE_TEXT[persistence]}</span>;
 }
 
 // ------------------------------------------------------------------ metric values
-export function ci(c: Ci | null | undefined, interval = "95% interval"): string {
+export function ci(c, interval = "95% interval") {
   return c ? `${pct(c.value)} (${interval} ${pct(c.low)} to ${pct(c.high)}, n ${c.n})` : NOT_YET;
 }
 
 // A Range with its three UNSURE treatments. Sorted by value so the range always reads low to high.
 // kind "recall" labels the two UNSURE treatments by what they do, because counting UNSURE as no match raises recall (no worst or best wording).
 // weighted marks a band weighted figure: its interval is a bootstrap over bands, which has zero width when every sampled AUTO label is a match.
-export function RangeStat({ title, range, kind = "precision", weighted = false }: { title: string; range: Range | null | undefined; kind?: "precision" | "recall"; weighted?: boolean }) {
+export function RangeStat({ title, range, kind = "precision", weighted = false }) {
   if (!range) return <Card><p className="font-semibold">{title}</p><p>{NOT_YET}</p></Card>;
-  const lines: [string, Ci | null][] = [
+  const lines = [
     ["UNSURE excluded (headline)", range.unsureExcluded],
     [kind === "recall" ? "UNSURE counted as no match" : "Worst case, UNSURE counted as no match", range.unsureAsNoMatch],
     [kind === "recall" ? "UNSURE counted as match" : "Best case, UNSURE counted as match", range.unsureAsMatch],
   ];
   const interval = weighted ? "bootstrap, weighted, 95% interval" : "95% interval";
-  const known = lines.map(([, c]) => c).filter((c): c is Ci => c !== null).sort((a, b) => a.value - b.value);
+  const known = lines.map(([, c]) => c).filter((c) => c !== null).sort((a, b) => a.value - b.value);
   return (
     <Card>
       <p className="font-semibold">{title}</p>
@@ -132,8 +128,8 @@ export function RangeStat({ title, range, kind = "precision", weighted = false }
   );
 }
 
-export function BandTable({ bands }: { bands: MetricBand[] }) {
-  const name = (n: string) => ({ AUTO: "AUTO", REVIEW: "REVIEW", JUST_BELOW: "Just below", LOW: "Low" })[n] ?? n;
+export function BandTable({ bands }) {
+  const name = (n) => ({ AUTO: "AUTO", REVIEW: "REVIEW", JUST_BELOW: "Just below", LOW: "Low" })[n] ?? n;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -161,16 +157,16 @@ export function BandTable({ bands }: { bands: MetricBand[] }) {
 }
 
 // ------------------------------------------------------------------ comparison pieces
-function range(values: number[]): [number, number] {
+function range(values) {
   return [Math.min(...values), Math.max(...values)];
 }
 
 // One dot per lender on a fair value / par axis, inline SVG, no chart library.
-export function DotPlot({ rows }: { rows: { label: string; value: number }[] }) {
+export function DotPlot({ rows }) {
   const [lo, hi] = range(rows.map((r) => r.value));
   const pad = Math.max((hi - lo) * 0.15, 0.5);
   const a = lo - pad, b = hi + pad;
-  const x = (v: number) => 20 + ((v - a) / (b - a)) * 560;
+  const x = (v) => 20 + ((v - a) / (b - a)) * 560;
   return (
     <svg viewBox="0 0 600 60" role="img" aria-label="Fair value as a percent of par, one dot per lender" className="w-full">
       <line x1="20" y1="30" x2="580" y2="30" stroke="currentColor" />
@@ -185,12 +181,12 @@ export function DotPlot({ rows }: { rows: { label: string; value: number }[] }) 
 }
 
 // Prior to current marks, one pair of dots per lender, inline SVG. A missing prior mark is drawn as text, never as a dot.
-export function HistoryStrip({ rows, persistence }: { rows: { bdcName: string; prior: number | null; current: number }[]; persistence: Persistence }) {
+export function HistoryStrip({ rows, persistence }) {
   const vals = rows.flatMap((r) => (r.prior === null ? [r.current] : [r.prior, r.current]));
   const [lo, hi] = range(vals);
   const pad = Math.max((hi - lo) * 0.15, 0.5);
   const a = lo - pad, b = hi + pad;
-  const x = (v: number) => 150 + ((v - a) / (b - a)) * 430;
+  const x = (v) => 150 + ((v - a) / (b - a)) * 430;
   return (
     <div>
       <p className="mb-1">Persistence: <PersistenceTag persistence={persistence} /></p>
@@ -210,9 +206,7 @@ export function HistoryStrip({ rows, persistence }: { rows: { bdcName: string; p
   );
 }
 
-type Col = { head: string; cell: (r: ComparisonRow) => string | null; dossier: boolean };
-
-const COLS: Col[] = [
+const COLS = [
   { head: "Spread", cell: (r) => (r.spreadBps === null ? null : fixed(r.spreadBps, 0) + " bps"), dossier: false },
   { head: "FV % of par", cell: (r) => fixed(r.fairValuePctPar, 2), dossier: false },
   { head: "Cost % of par", cell: (r) => (r.costPctPar === null ? null : fixed(r.costPctPar, 2)), dossier: true },
@@ -224,7 +218,7 @@ const COLS: Col[] = [
 ];
 
 // The lender table with the dossier columns. A null dossier cell reads "Not disclosed". A column whose disclosed values differ is marked with text.
-export function EvidenceTable({ rows }: { rows: ComparisonRow[] }) {
+export function EvidenceTable({ rows }) {
   const differs = COLS.map((c) => new Set(rows.map(c.cell).filter((v) => v !== null)).size > 1);
   return (
     <div className="overflow-x-auto">
@@ -254,7 +248,7 @@ export function EvidenceTable({ rows }: { rows: ComparisonRow[] }) {
   );
 }
 
-export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactNode }) {
+export function PageTitle({ children, sub }) {
   return (
     <div className="mb-4">
       <h1 className="text-2xl font-bold">{children}</h1>

@@ -1,16 +1,14 @@
-import type { Express, Request, Response } from "express";
-import type { Pool } from "pg";
-import { ApiError, parseId } from "./errors";
+import { ApiError, parseId } from "./errors.js";
 
 // E6, E7, E8 (CONTRACT.md). E7 and E8 update candidate_pairs.status and updated_at only. They change no curated table,
 // labeled_pairs or metric: the effect appears after the next compare.py run.
 
-const DATE = (col: string) => `to_char(${col}, 'YYYY-MM-DD')`;
+const DATE = (col) => `to_char(${col}, 'YYYY-MM-DD')`;
 
-export function registerReview(app: Express, pool: Pool, measuredPeriodEnd: string) {
+export function registerReview(app, pool, measuredPeriodEnd) {
   // E6 GET /api/review-queue: clusters first, then REVIEW pairs by score descending, then holdingIdA, holdingIdB.
   // Only the measured period (MEASURED_PERIOD_END): a pair or cluster of another quarter is neither listed nor counted.
-  app.get("/api/review-queue", async (_req: Request, res: Response) => {
+  app.get("/api/review-queue", async (_req, res) => {
     const [clusters, members, edges, pairs] = await Promise.all([
       pool.query(
         `SELECT cluster_id AS "clusterId", ${DATE("period_end_date")} AS "periodEnd", reason FROM review_clusters WHERE period_end_date = $1 ORDER BY cluster_id`,
@@ -54,11 +52,11 @@ export function registerReview(app: Express, pool: Pool, measuredPeriodEnd: stri
         [measuredPeriodEnd],
       ),
     ]);
-    const byCluster = <T extends { clusterId: number }>(rows: T[]) => {
-      const m = new Map<number, Omit<T, "clusterId">[]>();
+    const byCluster = (rows) => {
+      const m = new Map ();
       for (const { clusterId, ...rest } of rows) {
         if (!m.has(clusterId)) m.set(clusterId, []);
-        m.get(clusterId)!.push(rest);
+        m.get(clusterId) .push(rest);
       }
       return m;
     };
@@ -78,9 +76,9 @@ export function registerReview(app: Express, pool: Pool, measuredPeriodEnd: stri
   });
 
   // Path ids are accepted in either order; the server orders them so holdingIdA < holdingIdB.
-  async function transition(req: Request, res: Response, to: "CONFIRMED" | "REJECTED", from: string[]) {
-    const x = parseId(req.params.idA as string, "holding id");
-    const y = parseId(req.params.idB as string, "holding id");
+  async function transition(req, res, to, from) {
+    const x = parseId(req.params.idA, "holding id");
+    const y = parseId(req.params.idB, "holding id");
     const [a, b] = x < y ? [x, y] : [y, x];
     // one statement: the status check and the update cannot be separated by another request
     const done = await pool.query(

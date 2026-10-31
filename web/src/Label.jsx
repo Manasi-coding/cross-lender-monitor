@@ -1,21 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LabelHolding, LabelNext, LabelRequest, LabelResponse, LabelValue } from "./types";
-
 // Dev only labeling page (frontend.md 4.9). It is not linked from any menu.
 // It shows raw attributes and independent evidence only. E11 never sends a score, status, band or phase.
 
 const KEEP = 5;
 const NAME_KEY = "labeledBy";
 
-type Done = { sample: LabelNext; label: LabelValue };
-type Load =
-  | { kind: "loading" }
-  | { kind: "off" }
-  | { kind: "empty" }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; sample: LabelNext };
-
-function readName(): string {
+function readName() {
   try {
     return window.localStorage.getItem(NAME_KEY) ?? "";
   } catch {
@@ -23,7 +13,7 @@ function readName(): string {
   }
 }
 
-function saveName(v: string) {
+function saveName(v) {
   try {
     window.localStorage.setItem(NAME_KEY, v);
   } catch {
@@ -31,11 +21,11 @@ function saveName(v: string) {
   }
 }
 
-function show(v: string | null): string {
+function show(v) {
   return v === null || v === "" ? "Not yet measured" : v;
 }
 
-function Card({ title, h }: { title: string; h: LabelHolding }) {
+function Card({ title, h }) {
   return (
     <div className="flex-1 min-w-64 border border-gray-400 p-3">
       <h2 className="font-bold mb-2">{title}</h2>
@@ -63,11 +53,11 @@ function Card({ title, h }: { title: string; h: LabelHolding }) {
 }
 
 export default function Label() {
-  const [load, setLoad] = useState<Load>({ kind: "loading" });
-  const [labeledBy, setLabeledBy] = useState<string>(readName);
-  const [history, setHistory] = useState<Done[]>([]);
-  const [viewing, setViewing] = useState<number | null>(null); // index into history; null means the live sample
-  const [note, setNote] = useState<string | null>(null);
+  const [load, setLoad] = useState({ kind: "loading" });
+  const [labeledBy, setLabeledBy] = useState(readName);
+  const [history, setHistory] = useState([]);
+  const [viewing, setViewing] = useState(null); // index into history; null means the live sample
+  const [note, setNote] = useState(null);
   const busy = useRef(false);
 
   const loadNext = useCallback(async () => {
@@ -76,9 +66,9 @@ export default function Label() {
       if (res.status === 404) return setLoad({ kind: "off" });
       if (res.status === 204) return setLoad({ kind: "empty" });
       if (!res.ok) return setLoad({ kind: "error", message: `HTTP ${res.status}` });
-      setLoad({ kind: "ready", sample: (await res.json()) as LabelNext });
+      setLoad({ kind: "ready", sample: (await res.json()) });
     } catch (e) {
-      setLoad({ kind: "error", message: (e as Error).message });
+      setLoad({ kind: "error", message: (e).message });
     }
   }, []);
 
@@ -86,11 +76,11 @@ export default function Label() {
     void loadNext();
   }, [loadNext]);
 
-  const shown: LabelNext | null =
+  const shown =
     viewing !== null ? (history[viewing]?.sample ?? null) : load.kind === "ready" ? load.sample : null;
 
   const submit = useCallback(
-    async (label: LabelValue) => {
+    async (label) => {
       if (busy.current || !shown) return;
       const name = labeledBy.trim();
       if (!name) {
@@ -99,14 +89,14 @@ export default function Label() {
       }
       busy.current = true;
       try {
-        const body: LabelRequest = { sampleId: shown.sampleId, label, labeledBy: name };
+        const body = { sampleId: shown.sampleId, label, labeledBy: name };
         const res = await fetch("/api/label", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
         if (res.status === 404) {
-          const err = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+          const err = (await res.json().catch(() => null));
           // the route is not mounted ("No such route.") or the sample id is unknown ("No such sample.")
           if (err?.error?.message === "No such sample.") setNote("That sample was not found.");
           else setLoad({ kind: "off" });
@@ -116,7 +106,7 @@ export default function Label() {
           setNote(`The label was not saved (HTTP ${res.status}).`);
           return;
         }
-        (await res.json()) as LabelResponse;
+        (await res.json());
         setNote(null);
         if (viewing !== null) {
           // a correction: keep the new label and return to the live sample, which is still unlabeled
@@ -127,7 +117,7 @@ export default function Label() {
           await loadNext();
         }
       } catch (e) {
-        setNote(`The label was not saved: ${(e as Error).message}`);
+        setNote(`The label was not saved: ${(e).message}`);
       } finally {
         busy.current = false;
       }
@@ -141,8 +131,8 @@ export default function Label() {
   }, [history.length]);
 
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      const t = e.target as HTMLElement | null;
+    function onKey(e) {
+      const t = e.target;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const k = e.key.toLowerCase();

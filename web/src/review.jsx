@@ -1,25 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiFailure, getJson, postJson } from "./api";
-import { useShared } from "./App";
-import { Card, EmptyState, Load, PageTitle, PeriodTag, SourceLink, useFetch } from "./components";
-import { bps, fixed, typeName } from "./format";
-import type { ReviewCluster, ReviewItem, ReviewPair } from "./types";
-
+import { ApiFailure, getJson, postJson } from "./api.js";
+import { useShared } from "./App.jsx";
+import { Card, EmptyState, Load, PageTitle, PeriodTag, SourceLink, useFetch } from "./components.jsx";
+import { bps, fixed, typeName } from "./format.js";
 // 4.6 Review queue. The score is shown here (it is hidden only on the labeling page).
-const key = (i: ReviewItem) => (i.type === "pair" ? `p${i.holdingIdA}-${i.holdingIdB}` : `c${i.clusterId}`);
+const key = (i) => (i.type === "pair" ? `p${i.holdingIdA}-${i.holdingIdB}` : `c${i.clusterId}`);
 
 export function ReviewPage() {
   const [version, setVersion] = useState(0);
-  const f = useFetch(() => getJson<ReviewItem[]>("/api/review-queue"), [version]);
+  const f = useFetch(() => getJson("/api/review-queue"), [version]);
   const { refresh, overview } = useShared();
-  const [skipped, setSkipped] = useState<Set<string>>(new Set());
-  const [notice, setNotice] = useState<string | null>(null);
+  const [skipped, setSkipped] = useState(new Set());
+  const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => setSkipped(new Set()), [version]);
 
   const act = useCallback(
-    async (a: number, b: number, action: "confirm" | "reject") => {
+    async (a, b, action) => {
       if (busy) return;
       setBusy(true);
       try {
@@ -28,7 +26,7 @@ export function ReviewPage() {
       } catch (e) {
         if (e instanceof ApiFailure && e.status === 409) setNotice("This pair was already decided.");
         else if (e instanceof ApiFailure && e.status === 404) setNotice("This pair is not in the review queue any more.");
-        else setNotice((e as Error).message);
+        else setNotice((e).message);
       } finally {
         setBusy(false);
         setVersion((v) => v + 1);
@@ -69,7 +67,7 @@ export function ReviewPage() {
   );
 }
 
-function PairCard({ p, measured, busy, onAct, onSkip }: { p: ReviewPair; measured?: string; busy: boolean; onAct: (a: number, b: number, action: "confirm" | "reject") => void; onSkip: () => void }) {
+function PairCard({ p, measured, busy, onAct, onSkip }) {
   return (
     <Card>
       <p className="font-bold uppercase">{p.rawNameA ?? "Name not disclosed"} and {p.rawNameB ?? "Name not disclosed"}<PeriodTag periodEnd={p.periodEnd} measured={measured} /></p>
@@ -85,7 +83,7 @@ function PairCard({ p, measured, busy, onAct, onSkip }: { p: ReviewPair; measure
   );
 }
 
-function ClusterCard({ c, measured, busy, onReject }: { c: ReviewCluster; measured?: string; busy: boolean; onReject: (a: number, b: number) => void }) {
+function ClusterCard({ c, measured, busy, onReject }) {
   return (
     <Card>
       <p className="font-bold">CLUSTER NEEDS REVIEW<PeriodTag periodEnd={c.periodEnd} measured={measured} /></p>

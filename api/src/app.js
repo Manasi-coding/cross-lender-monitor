@@ -1,40 +1,25 @@
-import express, { NextFunction, Request, Response } from "express";
-import type { Pool } from "pg";
-import { ApiError, sendError } from "./errors";
-import { registerFacilities } from "./facilities";
-import { registerLabeling } from "./labeling";
-import { registerMetrics } from "./metrics";
-import { registerReview } from "./review";
+import express from "express";
+
+import { ApiError, sendError } from "./errors.js";
+import { registerFacilities } from "./facilities.js";
+import { registerLabeling } from "./labeling.js";
+import { registerMetrics } from "./metrics.js";
+import { registerReview } from "./review.js";
 
 // Convention: NUMERIC values leave the API as strings, exactly as Postgres returns them.
 // JSON numbers are doubles, which would lose digits on money values. Conversion happens at the UI edge.
 
 export { ApiError };
 
-export type AppOptions = {
-  pool: Pool;
-  enableLabeling: boolean; // ENABLE_LABELING, default false (no auth, so E11 and E12 are opt in)
-  nodeEnv: string;
-  measuredPeriodEnd: string; // MEASURED_PERIOD_END (YYYY-MM-DD), set once in .env and read by the pipeline and the API; E1 returns it
-};
-
-// Skeleton handler: the route exists in the CONTRACT.md endpoint index but is not built yet.
-// CONTRACT.md names no 501 code, so NOT_IMPLEMENTED is used in the standard shape.
-function notImplemented(id: string) {
-  return (_req: Request, res: Response) => {
-    sendError(res, 501, "NOT_IMPLEMENTED", `${id} is not implemented yet.`);
-  };
-}
-
-export function createApp(opts: AppOptions): express.Express {
+export function createApp(opts) {
   const { pool } = opts;
   const app = express();
 
-  // E1 to E5 (facilities.ts), E6 to E8 (review.ts)
+  // E1 to E5 (facilities.js), E6 to E8 (review.js)
   registerFacilities(app, pool, opts.measuredPeriodEnd);
   registerReview(app, pool, opts.measuredPeriodEnd);
 
-  // E9 (metrics.ts)
+  // E9 (metrics.js)
   registerMetrics(app, pool, opts.measuredPeriodEnd);
 
   // E10 GET /api/filings (CONTRACT.md). Sort: periodEnd descending, bdcName ascending.
@@ -60,17 +45,17 @@ export function createApp(opts: AppOptions): express.Express {
   }
 
   // Unknown id or route not mounted: 404 in the standard shape.
-  app.use((_req: Request, res: Response) => {
+  app.use((_req, res) => {
     sendError(res, 404, "NOT_FOUND", "No such route.");
   });
 
   // Error middleware: ApiError keeps its status and code, anything else is a 500.
-  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use((err, _req, res, _next) => {
     if (err instanceof ApiError) {
       sendError(res, err.status, err.code, err.message);
       return;
     }
-    if ((err as { type?: string })?.type === "entity.parse.failed") {
+    if ((err)?.type === "entity.parse.failed") {
       sendError(res, 400, "BAD_REQUEST", "The request body is not valid JSON.");
       return;
     }

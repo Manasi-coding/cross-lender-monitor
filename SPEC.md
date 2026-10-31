@@ -30,7 +30,7 @@ After the core four, and the first things cut: the Overview and Filings pages (E
 
 4. Technologies and Tech Stack
 4.1 Stack
-Python 3.11 (pandas, rapidfuzz) — pipeline. Node 24 LTS + Express 5 (TypeScript) — API. React 19 + Tailwind — UI. PostgreSQL 16. pytest + API tests. GitHub Actions. Docker Compose v2.
+Python 3.11 (pandas, rapidfuzz) — pipeline. Node 24 LTS + Express 5 (plain JavaScript, ES modules) — API. React 19 + Tailwind — UI. PostgreSQL 16. pytest + API tests. GitHub Actions. Docker Compose v2.
 4.2 Technology Rules
 Pipeline is a standalone Python process (CLI entry point), never imported into the Node process.
 API is read-mostly, not read-only. Two kinds of writes exist, both listed in CONTRACT.md: the review-queue actions (E7, E8), which update candidate_pairs.status only; and the labeling action (E12), which writes labeled_pairs only and exists only when ENABLE_LABELING=true (default false, since there is no auth). Every other endpoint only reads. State it this way in the README.
@@ -933,7 +933,7 @@ Expanding coverage before the matcher is measured. Polishing UI before the match
   /report.py            — read-only: writes docs/data_report.md (ingest counts, blocking efficiency, run times)
   /config.py            — loads config.yaml and env, computes the matcher hash, `--hash`, `--freeze`, `--unfreeze`
   /config.yaml
-/api                     — Node/Express, TypeScript, read-mostly (contract in CONTRACT.md; E11 and E12 behind ENABLE_LABELING)
+/api                     — Node/Express, plain JavaScript (ES modules), read-mostly (contract in CONTRACT.md; E11 and E12 behind ENABLE_LABELING)
 /web
 /tests
   /test_normalize.py

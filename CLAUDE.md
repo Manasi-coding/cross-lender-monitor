@@ -17,7 +17,7 @@ Source of truth: SPEC.md (scope, schema, evaluation, tests, schedule), CONTRACT.
 
 ## Technical rules
 - Python 3.11 pipeline as a standalone CLI (python -m pipeline.<module>). Never imported by Node.
-- Node 24, Express 5, TypeScript API. React 19 + Tailwind frontend. Postgres 16. Docker Compose v2.
+- Node 24, Express 5, plain JavaScript (ES modules) API. React 19 + Tailwind frontend. Postgres 16. Docker Compose v2.
 - No ORM. Parameterized SQL only (psycopg in Python, pg in Node).
 - All tunables live in pipeline/config.yaml. Secrets and MEASURED_PERIOD_END live in .env.
 - Use NUMERIC in SQL and Decimal in Python for money and divergence. Never floats.
@@ -34,6 +34,6 @@ Source of truth: SPEC.md (scope, schema, evaluation, tests, schedule), CONTRACT.
 
 ## Frontend rules
 - Build against the real API from Day 7. No invented sample numbers.
-- types.ts mirrors CONTRACT.md exactly. Change the contract first if it changes.
+- web/src/types.js (JSDoc typedefs) mirrors CONTRACT.md exactly. Change the contract first if it changes.
 - UI strings use plain sentences and simple bullets. Avoid dashes and em-dashes. Write ranges as "to".
 - Null from the API renders "Not yet measured".
