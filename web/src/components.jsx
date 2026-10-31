@@ -130,13 +130,13 @@ export function StatCard({ label, value, to, note, tone = "neutral", icon }) {
   );
 }
 
-// A gradient banner card for the page's headline figure, with pill CTAs. Content is caller-supplied real data only.
+// A solid, single-colour banner card for the page's headline figure, with pill CTAs. Content is caller-supplied real data only.
 export function HeroCard({ eyebrow, title, subtitle, actions }) {
   return (
-    <div className="gradient-hero card-shadow rounded-[var(--radius-card)] p-6 text-white sm:p-7">
-      {eyebrow && <p className="text-xs font-semibold uppercase tracking-wide text-white/75">{eyebrow}</p>}
+    <div className="hero-solid card-shadow rounded-[var(--radius-card)] p-6 sm:p-7" style={{ color: "var(--color-brand-dark)" }}>
+      {eyebrow && <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-brand-dark)", opacity: 0.75 }}>{eyebrow}</p>}
       <p className="mt-2 text-2xl font-bold leading-snug sm:text-[28px]">{title}</p>
-      {subtitle && <p className="mt-2 max-w-xl text-sm text-white/85">{subtitle}</p>}
+      {subtitle && <p className="mt-2 max-w-xl text-sm" style={{ opacity: 0.85 }}>{subtitle}</p>}
       {actions && <div className="mt-5 flex flex-wrap gap-2.5">{actions}</div>}
     </div>
   );
@@ -146,7 +146,10 @@ export function HeroLink({ to, children }) {
   return (
     <Link
       to={to}
-      className="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+      className="rounded-xl px-4 py-2 text-sm font-semibold transition-colors"
+      style={{ background: "rgba(22, 48, 31, 0.14)", color: "var(--color-brand-dark)" }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(22, 48, 31, 0.22)")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(22, 48, 31, 0.14)")}
     >
       {children}
     </Link>
@@ -164,28 +167,43 @@ export function DivergenceDonut({ agreement, mild, flagged }) {
     ["FLAGGED", flagged, "var(--color-flagged)"],
   ];
   let offset = 0;
+  const sharePct = (n) => (total === 0 ? null : Math.round((n / total) * 100));
   return (
-    <div className="flex items-center gap-5">
-      <svg viewBox="0 0 36 36" className="h-28 w-28 shrink-0 -rotate-90" role="img" aria-label="Share of facilities by agreement status">
-        <circle cx="18" cy="18" r={r} fill="none" stroke="var(--color-border)" strokeWidth="4" />
-        {total > 0 &&
-          segs.map(([name, n, color]) => {
-            if (n === 0) return null;
-            const frac = n / total;
-            const dash = `${frac * c} ${c - frac * c}`;
-            const el = <circle key={name} cx="18" cy="18" r={r} fill="none" stroke={color} strokeWidth="4" strokeDasharray={dash} strokeDashoffset={-offset} strokeLinecap="butt" />;
-            offset += frac * c;
-            return el;
-          })}
-      </svg>
-      <div className="space-y-2 text-sm">
-        {segs.map(([name, n, color]) => (
-          <div key={name} className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
-            <span style={{ color: "var(--color-text-secondary)" }}>{FLAG_TEXT[name]}</span>
-            <span className="font-semibold" style={{ color: "var(--color-text)" }}>{n}</span>
-          </div>
-        ))}
+    <div className="flex flex-wrap items-center gap-6">
+      <div className="relative h-32 w-32 shrink-0">
+        <svg viewBox="0 0 36 36" className="h-32 w-32 -rotate-90" role="img" aria-label="Share of facilities by agreement status">
+          <circle cx="18" cy="18" r={r} fill="none" stroke="var(--color-border)" strokeWidth="4" />
+          {total > 0 &&
+            segs.map(([name, n, color]) => {
+              if (n === 0) return null;
+              const frac = n / total;
+              const dash = `${frac * c} ${c - frac * c}`;
+              const el = <circle key={name} cx="18" cy="18" r={r} fill="none" stroke={color} strokeWidth="4" strokeDasharray={dash} strokeDashoffset={-offset} strokeLinecap="butt" />;
+              offset += frac * c;
+              return el;
+            })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xl font-bold leading-none" style={{ color: "var(--color-text)" }}>{total}</span>
+          <span className="mt-1 text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Facilities</span>
+        </div>
+      </div>
+      <div className="min-w-[160px] flex-1 space-y-3 text-sm">
+        {segs.map(([name, n, color]) => {
+          const p = sharePct(n);
+          return (
+            <div key={name} className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                <span style={{ color: "var(--color-text-secondary)" }}>{FLAG_TEXT[name]}</span>
+              </span>
+              <span style={{ color: "var(--color-text)" }}>
+                <span className="font-semibold">{n}</span>
+                {p !== null && <span className="ml-1.5 text-xs" style={{ color: "var(--color-text-muted)" }}>({p}%)</span>}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

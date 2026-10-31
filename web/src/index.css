@@ -15,15 +15,15 @@
   --color-text-secondary: #667085;
   --color-text-muted: #98a2b3;
 
-  /* Deep forest green identity, lime accent (sidebar + charts), as the reference dashboard. */
-  --color-brand: #8dc63f;
-  --color-brand-light: #eaf6dc;
+  /* Deep forest green identity, soft light-green accent (sidebar + charts + hero), as the reference dashboard. */
+  --color-brand: #9bc97e;
+  --color-brand-light: #eef5e8;
   --color-brand-dark: #16301f;
 
   --color-sidebar-bg: #13261a;
   --color-sidebar-text: #aebcb0;
-  --color-sidebar-active-bg: #8dc63f;
-  --color-sidebar-active-text: #13261a;
+  --color-sidebar-active-bg: var(--color-brand);
+  --color-sidebar-active-text: #16301f;
   --color-sidebar-hover-bg: rgba(255, 255, 255, 0.06);
   --color-sidebar-border: rgba(255, 255, 255, 0.08);
 
@@ -73,8 +73,8 @@ input:focus-visible {
   box-shadow: 0 1px 2px rgba(23, 32, 51, 0.05), 0 8px 20px -14px rgba(23, 32, 51, 0.18);
 }
 
-.gradient-hero {
-  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-brand-dark) 100%);
+.hero-solid {
+  background: var(--color-brand);
 }
 
 .table-row-hover:hover {

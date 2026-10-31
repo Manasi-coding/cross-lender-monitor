@@ -63,7 +63,7 @@ export function OverviewPage() {
         eyebrow={`Measured quarter · ${o.measuredPeriodEnd}`}
         title={
           s
-            ? `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"} — ${s.flagged} ${s.flagged === 1 ? "case needs" : "cases need"} a closer look, ${usd(o.flaggedExposureUsd)} flagged exposure in total.`
+            ? `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}. ${s.flagged} ${s.flagged === 1 ? "case needs" : "cases need"} a closer look, ${usd(o.flaggedExposureUsd)} flagged exposure in total.`
             : `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}.`
         }
         actions={
@@ -92,7 +92,12 @@ export function OverviewPage() {
         <Card>
           <CardLabel>Valuation differences</CardLabel>
           {s ? (
-            <DivergenceDonut agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
+            <>
+              <DivergenceDonut agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
+              <p className="mt-5 border-t pt-4 text-sm" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+                {agreementShare} of facilities are in agreement between lenders. {s.mild} {s.mild === 1 ? "is a mild" : "are mild"} difference, {s.flagged} {s.flagged === 1 ? "is" : "are"} flagged.
+              </p>
+            </>
           ) : (
             <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
           )}
