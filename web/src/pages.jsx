@@ -7,6 +7,7 @@ import {
   CardLabel,
   ClickableDivergenceBar,
   DivergenceDonut,
+  DivergenceSplitChart,
   EmptyState,
   ErrorState,
   HeroCard,
@@ -195,6 +196,25 @@ export function OverviewPage() {
   );
 }
 
+// The worst (highest) divergence flag across a borrower's facilities, used only to badge a
+// borrower card. AGREEMENT < MILD < FLAGGED. Derived client-side from the existing E4 list
+// (no flag filter, so it is the same facility set Triage's "All" view uses); no new endpoint.
+const SEVERITY = { AGREEMENT: 0, MILD: 1, FLAGGED: 2 };
+function worstFlagByBorrower(facilities) {
+  const map = new Map();
+  for (const f of facilities) {
+    const prev = map.get(f.borrowerName);
+    if (!prev || SEVERITY[f.divergenceFlag] > SEVERITY[prev]) map.set(f.borrowerName, f.divergenceFlag);
+  }
+  return map;
+}
+
+const BORROWER_FILTERS = [
+  ["all", "All"],
+  ["flagged", "Flagged"],
+  ["multi", "2+ lenders"],
+];
+
 // ------------------------------------------------------------------ 4.2 Borrowers
 export function BorrowersPage() {
   const [params, setParams] = useSearchParams();
@@ -203,40 +223,97 @@ export function BorrowersPage() {
   useEffect(() => setText(urlSearch), [urlSearch]);
   const q = useDebounced(text.trim());
   const f = useFetch(() => getJson("/api/borrowers", { search: q || undefined }), [q]);
+  // Reuses the same unfiltered E4 list Triage's "All" view uses, to badge each borrower card with
+  // its worst facility status. No new endpoint and no parameter CONTRACT.md does not define.
+  const facilities = useFetch(() => getJson("/api/facilities", {}), []);
+  const [filter, setFilter] = useState("all");
   const { overview } = useShared();
+
+  const statusByBorrower = facilities.state === "ready" ? worstFlagByBorrower(facilities.data) : new Map();
+
   return (
     <>
-      <PageTitle>Borrowers</PageTitle>
-      <input
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          setParams(e.target.value.trim() ? { search: e.target.value.trim() } : {}, { replace: true });
-        }}
-        placeholder="Search borrower"
-        aria-label="Search borrower"
-        maxLength={200}
-        className={`mb-5 max-w-md ${inputClass}`}
-        style={inputStyle}
-      />
+      <PageTitle sub="Companies appearing across the monitored lenders">Borrowers</PageTitle>
+
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <input
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setParams(e.target.value.trim() ? { search: e.target.value.trim() } : {}, { replace: true });
+            }}
+            placeholder="Search borrower"
+            aria-label="Search borrower"
+            maxLength={200}
+            className={`max-w-md flex-1 ${inputClass}`}
+            style={inputStyle}
+          />
+          <div role="group" aria-label="Filter borrowers" className="flex flex-wrap gap-2">
+            {BORROWER_FILTERS.map(([v, label]) => (
+              <button key={v} aria-pressed={filter === v} onClick={() => setFilter(v)} className="btn-secondary">
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </Card>
+
       <Load f={f}>
-        {(rows) =>
-          rows.length === 0 ? (
-            <EmptyState>No borrowers match this search.</EmptyState>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.map((b) => (
-                <Card key={b.canonicalBorrowerId} to={`/borrowers/${b.canonicalBorrowerId}`}>
-                  <p className="font-semibold uppercase" style={{ color: "var(--color-text)" }}>{b.canonicalName}</p>
-                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.periodEnd}<PeriodTag periodEnd={b.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
-                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.lenderCount} {b.lenderCount === 1 ? "Lender" : "Lenders"}</p>
-                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.facilityCount} {b.facilityCount === 1 ? "Facility" : "Facilities"}</p>
-                  <p className="mt-2 text-sm font-medium" style={{ color: "var(--color-brand-dark)" }}>View borrower &rarr;</p>
+        {(allRows) => {
+          const rows = allRows.filter((b) => {
+            if (filter === "multi") return b.lenderCount >= 2;
+            if (filter === "flagged") return statusByBorrower.get(b.canonicalName) === "FLAGGED";
+            return true;
+          });
+          const multiLender = allRows.filter((b) => b.lenderCount >= 2).length;
+          const statusCounts = { agreement: 0, mild: 0, flagged: 0 };
+          for (const b of allRows) {
+            const status = statusByBorrower.get(b.canonicalName);
+            if (status === "FLAGGED") statusCounts.flagged += 1;
+            else if (status === "MILD") statusCounts.mild += 1;
+            else if (status === "AGREEMENT") statusCounts.agreement += 1;
+          }
+
+          return (
+            <>
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                <StatCard label="Borrowers" value={allRows.length} note="companies" tone="neutral" />
+                <StatCard label="Across lenders" value={multiLender} note="appear in 2+ lenders" tone="brand" />
+                <Card>
+                  <CardLabel>Status</CardLabel>
+                  {facilities.state === "ready" ? (
+                    <DivergenceSplitChart agreement={statusCounts.agreement} mild={statusCounts.mild} flagged={statusCounts.flagged} />
+                  ) : (
+                    <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+                  )}
                 </Card>
-              ))}
-            </div>
-          )
-        }
+              </div>
+
+              <h2 className="mb-4 mt-8 text-lg font-semibold" style={{ color: "var(--color-text)" }}>Borrower directory</h2>
+
+              {rows.length === 0 ? (
+                <EmptyState>No borrowers match this search.</EmptyState>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {rows.map((b) => {
+                    const status = statusByBorrower.get(b.canonicalName);
+                    return (
+                      <Card key={b.canonicalBorrowerId} to={`/borrowers/${b.canonicalBorrowerId}`}>
+                        <p className="font-semibold uppercase" style={{ color: "var(--color-text)" }}>{b.canonicalName}</p>
+                        <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.periodEnd}<PeriodTag periodEnd={b.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
+                        <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.lenderCount} {b.lenderCount === 1 ? "lender" : "lenders"}</p>
+                        <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.facilityCount} {b.facilityCount === 1 ? "facility" : "facilities"}</p>
+                        <p className="mt-2">{status ? <StatusPill flag={status} /> : <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>No comparison yet</span>}</p>
+                        <p className="mt-2 text-sm font-medium" style={{ color: "var(--color-brand-dark)" }}>View borrower &rarr;</p>
+                      </Card>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        }}
       </Load>
     </>
   );
