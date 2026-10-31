@@ -68,8 +68,17 @@ export function ReviewPage() {
           const groups = items.filter((i) => i.type === "cluster");
           const idx = Math.min(current, Math.max(0, items.length - 1));
           const primary = items[idx];
-          const secondary = items[idx + 1];
-          const majority = matches.length >= groups.length ? "Most cases are possible borrower matches." : "Most cases are from grouped records.";
+
+          // Match quality: the pending possible-match cases grouped by their real score (the same
+          // thresholds LikelihoodBar colours by). Clusters have no score, so this covers pairs only.
+          const tiers = { high: 0, medium: 0, low: 0 };
+          for (const p of matches) {
+            const pct = Math.round(Number(p.score) * 100);
+            if (pct >= 88) tiers.high += 1;
+            else if (pct >= 84) tiers.medium += 1;
+            else tiers.low += 1;
+          }
+          const tierPct = (n) => (matches.length === 0 ? 0 : Math.round((n / matches.length) * 100));
 
           return (
             <>
@@ -92,18 +101,33 @@ export function ReviewPage() {
                   />
                 </Card>
                 <Card compact>
-                  <CardLabel>What needs attention</CardLabel>
-                  <div className="space-y-1.5 text-sm">
-                    <p className="flex items-center gap-2" style={{ color: "var(--color-text)" }}>
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-chart-green)" }} />
-                      Possible match <span className="ml-auto font-semibold">{matches.length}</span>
-                    </p>
-                    <p className="flex items-center gap-2" style={{ color: "var(--color-text)" }}>
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
-                      Group issue <span className="ml-auto font-semibold">{groups.length}</span>
-                    </p>
-                  </div>
-                  {items.length > 0 && <p className="mt-2 text-xs" style={{ color: "var(--color-text-secondary)" }}>{majority}</p>}
+                  <CardLabel>Match quality</CardLabel>
+                  {matches.length === 0 ? (
+                    <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>No possible matches waiting.</p>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-2 text-center text-sm">
+                        <div>
+                          <p style={{ color: "var(--color-text-secondary)" }}>High</p>
+                          <p className="text-lg font-bold" style={{ color: "var(--color-chart-green)" }}>{tierPct(tiers.high)}%</p>
+                        </div>
+                        <div>
+                          <p style={{ color: "var(--color-text-secondary)" }}>Medium</p>
+                          <p className="text-lg font-bold" style={{ color: "var(--color-chart-yellow)" }}>{tierPct(tiers.medium)}%</p>
+                        </div>
+                        <div>
+                          <p style={{ color: "var(--color-text-secondary)" }}>Low</p>
+                          <p className="text-lg font-bold" style={{ color: "var(--color-chart-red)" }}>{tierPct(tiers.low)}%</p>
+                        </div>
+                      </div>
+                      <div className="mt-2 flex h-3 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+                        {tiers.high > 0 && <div style={{ width: `${tierPct(tiers.high)}%`, background: "var(--color-chart-green)" }} />}
+                        {tiers.medium > 0 && <div style={{ width: `${tierPct(tiers.medium)}%`, background: "var(--color-chart-yellow)" }} />}
+                        {tiers.low > 0 && <div style={{ width: `${tierPct(tiers.low)}%`, background: "var(--color-chart-red)" }} />}
+                      </div>
+                      <p className="mt-2 text-xs" style={{ color: "var(--color-text-secondary)" }}>How possible matches are distributed by confidence</p>
+                    </>
+                  )}
                 </Card>
               </div>
 
@@ -127,7 +151,6 @@ export function ReviewPage() {
                         onAct={(a, b, action) => act(a, b, action, key(primary))}
                       />
                     )}
-                    {secondary && <SecondaryPreview item={secondary} index={idx + 2} total={items.length} />}
                   </div>
 
                   <div className="mt-4 flex items-center justify-between">
@@ -162,20 +185,6 @@ function SectionLabel({ tone = "review", children }) {
 
 // A compact, non-interactive look at the next case, so the page shows "what's coming" without
 // listing every one of the 24 at once.
-function SecondaryPreview({ item, index, total }) {
-  const isPair = item.type === "pair";
-  const title = isPair ? (item.rawNameA ?? item.rawNameB ?? "Name not disclosed") : (item.holdings[0]?.rawName ?? "Name not disclosed");
-  return (
-    <div className="rounded-[var(--radius-card)] border p-3 opacity-70" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
-      <div className="flex items-center justify-between gap-2">
-        <SectionLabel tone={isPair ? "brand" : "flagged"}>{isPair ? "Possible match" : "Group issue"}</SectionLabel>
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{index}/{total}</span>
-      </div>
-      <p className="mt-1 text-sm font-medium uppercase" style={{ color: "var(--color-text)" }}>{title}</p>
-    </div>
-  );
-}
-
 // Likelihood colour follows the app's green/amber/red language: a high score reads as likely, the
 // middle of the REVIEW band as worth a closer look, the low end as more likely not the same.
 function likelihoodColor(pct) {
