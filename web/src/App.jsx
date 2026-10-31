@@ -43,7 +43,7 @@ export default function App() {
   }, []);
   useEffect(refresh, [refresh]);
 
-  // Refetch the shared overview (sidebar counts, Review badge) when the tab regains focus, so it
+  // Refetch the shared overview (the Review badge) when the tab regains focus, so it
   // never shows a stale pendingReviewCount after a decision was made elsewhere. No polling or
   // simulated updates: this only runs on a real focus event.
   useEffect(() => {
@@ -111,12 +111,6 @@ export default function App() {
               </li>
             ))}
           </ul>
-          {overview && (
-            <div className="mt-6 hidden space-y-1 border-t pt-4 text-xs md:block" style={{ borderColor: "var(--color-sidebar-border)", color: "var(--color-sidebar-text)" }}>
-              <p>{overview.bdcCount} {overview.bdcCount === 1 ? "Lender" : "Lenders"}</p>
-              <p>{overview.quarterCount} {overview.quarterCount === 1 ? "Quarter" : "Quarters"}</p>
-            </div>
-          )}
         </nav>
         <div className="min-w-0 flex-1 p-6 md:p-8">
           <header className="mb-6 flex items-center gap-3">
