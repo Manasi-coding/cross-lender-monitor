@@ -277,8 +277,8 @@ function PairCard({ p, measured, busy, fading, index, total, onAct }) {
 }
 
 function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
-  // Open by default: this is the one case on screen to act on, so its decision controls (the
-  // per-pair reject buttons below) should not require an extra click to find.
+  // Open by default: this is the one case on screen to act on, so its decision controls should not
+  // require an extra click to find.
   const [open, setOpen] = useState(true);
   // "Same" has no server action to call: a pair already sits in this cluster (AUTO or CONFIRMED),
   // so leaving it alone already means "same". This only fades the row from view locally, it is not
@@ -289,21 +289,40 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   const title = c.holdings[0]?.rawName ?? "Name not disclosed";
   const lender = c.holdings[0]?.bdcName ?? "Not disclosed";
 
-  // The most common maturity and spread across this group's own holdings (real data, no new
-  // field), so a row whose own maturity or spread does not match the rest can be flagged: the
-  // actual signal a reviewer needs to spot the odd one out, instead of reading every row by eye.
-  const mode = (values) => {
-    const counts = new Map();
-    for (const v of values) if (v !== null) counts.set(v, (counts.get(v) ?? 0) + 1);
-    let best = null, bestN = 0;
-    for (const [v, n] of counts) if (n > bestN) { best = v; bestN = n; }
-    return counts.size > 1 ? best : null;
+  // The record most of this group's other records were paired against (its pair count is the
+  // highest), used as the one comparison baseline so this reads as "N records versus one", not a
+  // grid of every record against every other.
+  const degree = new Map();
+  for (const p of c.pairs) {
+    degree.set(p.holdingIdA, (degree.get(p.holdingIdA) ?? 0) + 1);
+    degree.set(p.holdingIdB, (degree.get(p.holdingIdB) ?? 0) + 1);
+  }
+  let baseId = c.holdings[0]?.holdingId;
+  let baseDegree = -1;
+  for (const [id, d] of degree) if (d > baseDegree) { baseId = id; baseDegree = d; }
+  const base = byHoldingId.get(baseId);
+  const others = c.holdings.filter((h) => h.holdingId !== baseId);
+
+  // Compares to the baseline record by value, not by string: NUMERIC fields can arrive as "475" for
+  // one row and "475.00" for another and still be the same number, which a plain !== comparison
+  // would wrongly call a difference.
+  const sameValue = (a, b) => {
+    if (a === null || b === null) return a === b;
+    const na = Number(a), nb = Number(b);
+    return Number.isFinite(na) && Number.isFinite(nb) ? na === nb : a === b;
   };
-  const commonMaturity = mode(c.holdings.map((h) => h.maturityDate));
-  const commonSpread = mode(c.holdings.map((h) => h.spreadBps));
-  const holdingDiffers = (h) =>
-    (commonMaturity !== null && h?.maturityDate !== null && h?.maturityDate !== commonMaturity) ||
-    (commonSpread !== null && h?.spreadBps !== null && h?.spreadBps !== commonSpread);
+  const compare = (h) => {
+    const reasons = [];
+    let unknown = false;
+    if (h.maturityDate === null || base?.maturityDate === null) unknown = true;
+    else if (!sameValue(h.maturityDate, base.maturityDate)) reasons.push("maturity");
+    if (h.spreadBps === null || base?.spreadBps === null) unknown = true;
+    else if (!sameValue(h.spreadBps, base.spreadBps)) reasons.push("spread");
+    if (reasons.length > 0) return { label: `Different ${reasons.join(" and ")}`, tone: "flagged" };
+    if (unknown) return { label: "Not enough data to compare", tone: "neutral" };
+    return { label: "Matches", tone: "brand" };
+  };
+
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -311,7 +330,6 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
         <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{index}/{total}</span>
       </div>
       <p className="mt-1 font-semibold uppercase" style={{ color: "var(--color-text)" }}>{title}</p>
-      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Several records from the same lender were grouped together.</p>
 
       <div className="mt-3 flex items-center justify-between rounded-xl border p-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
         <div>
@@ -328,98 +346,52 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
       </div>
 
       {open && (
-        <div className="mt-3 space-y-3">
-          <div className="overflow-x-auto">
+        <div className="mt-3">
+          <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>
+            Comparing against: <span className="font-medium" style={{ color: "var(--color-text)" }}>{base?.rawName ?? "Name not disclosed"}</span>, maturity {base?.maturityDate ?? "not disclosed"}
+          </p>
+          <div className="mt-2 overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
                 <tr style={{ color: "var(--color-text-secondary)" }}>
                   <th className="py-1.5 pr-4 font-medium">Record</th>
                   <th className="py-1.5 pr-4 font-medium">Maturity</th>
-                  <th className="py-1.5 pr-4 font-medium">Spread</th>
-                  <th className="py-1.5 pr-4 font-medium">Differs from the group</th>
-                  <th className="py-1.5 pr-2 font-medium">Source</th>
+                  <th className="py-1.5 pr-4 font-medium">Compared to the baseline</th>
+                  <th className="py-1.5 pr-4 font-medium">Source</th>
+                  <th className="py-1.5 pr-2 font-medium">Decision</th>
                 </tr>
               </thead>
               <tbody>
-                {c.holdings.map((h) => {
-                  const maturityDiffers = commonMaturity !== null && h.maturityDate !== null && h.maturityDate !== commonMaturity;
-                  const spreadDiffers = commonSpread !== null && h.spreadBps !== null && h.spreadBps !== commonSpread;
-                  const differs = maturityDiffers || spreadDiffers;
+                {others.map((h) => {
+                  const pair = c.pairs.find((p) => p.holdingIdA === h.holdingId || p.holdingIdB === h.holdingId);
+                  const result = compare(h);
+                  const fadeKey = pair ? `pair-${pair.holdingIdA}-${pair.holdingIdB}` : null;
+                  const dismissed = pair && dismissedPairs.has(`${pair.holdingIdA}-${pair.holdingIdB}`);
+                  const tone = { flagged: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", dot: "var(--color-chart-red)" }, brand: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", dot: "var(--color-chart-green)" }, neutral: { fg: "var(--color-text-secondary)", bg: "var(--color-border)", dot: "var(--color-text-muted)" } }[result.tone];
                   return (
-                    <tr key={h.holdingId} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                    <tr key={h.holdingId} className={`border-t ${fading.has(fadeKey) || dismissed ? "fade-out-card" : ""}`} style={{ borderColor: "var(--color-border)" }}>
                       <td className="py-1.5 pr-4" style={{ color: "var(--color-text)" }}>{h.rawName ?? "Name not disclosed"}</td>
-                      <td className="py-1.5 pr-4" style={{ color: maturityDiffers ? "var(--color-flagged)" : "var(--color-text)" }}>{h.maturityDate ?? "Not disclosed"}</td>
-                      <td className="py-1.5 pr-4" style={{ color: spreadDiffers ? "var(--color-flagged)" : "var(--color-text)" }}>{bps(h.spreadBps, "Not disclosed")}</td>
+                      <td className="py-1.5 pr-4" style={{ color: "var(--color-text)" }}>{h.maturityDate ?? "Not disclosed"}</td>
                       <td className="py-1.5 pr-4">
-                        {differs ? (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
-                            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
-                            {maturityDiffers && spreadDiffers ? "Maturity and spread differ" : maturityDiffers ? "Maturity differs" : "Spread differs"}
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-brand-dark)", background: "var(--color-brand-light)" }}>
-                            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-green)" }} />
-                            Matches the group
-                          </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: tone.fg, background: tone.bg }}>
+                          <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: tone.dot }} />
+                          {result.label}
+                        </span>
+                      </td>
+                      <td className="py-1.5 pr-4"><SourceLink url={h.sourceUrl}>View filing</SourceLink></td>
+                      <td className="py-1.5 pr-2">
+                        {pair && (
+                          <div className="flex gap-2">
+                            <button type="button" disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onDismiss(pair.holdingIdA, pair.holdingIdB)}>Same</button>
+                            <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(pair.holdingIdA, pair.holdingIdB)}>Not the same</button>
+                          </div>
                         )}
                       </td>
-                      <td className="py-1.5 pr-2"><SourceLink url={h.sourceUrl}>View filing</SourceLink></td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
-          </div>
-
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Are these the same record?</p>
-            <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-secondary)" }}>
-              These pairs are already grouped together. Leave as is if they belong together, or mark a pair as not the same to split it out.
-            </p>
-            <ul className="mt-2 space-y-2">
-              {c.pairs.map((p, i) => {
-                const holdingA = byHoldingId.get(p.holdingIdA);
-                const holdingB = byHoldingId.get(p.holdingIdB);
-                const nameA = holdingA?.rawName ?? "Name not disclosed";
-                const nameB = holdingB?.rawName ?? "Name not disclosed";
-                const suspicious = holdingDiffers(holdingA) || holdingDiffers(holdingB);
-                const dismissed = dismissedPairs.has(`${p.holdingIdA}-${p.holdingIdB}`);
-                const detail = (h) => `${h?.maturityDate ?? "maturity not disclosed"}, ${bps(h?.spreadBps ?? null, "spread not disclosed")}`;
-                return (
-                  <li
-                    key={`${p.holdingIdA}-${p.holdingIdB}`}
-                    className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-2.5 text-sm ${fading.has(`pair-${p.holdingIdA}-${p.holdingIdB}`) || dismissed ? "fade-out-card" : ""}`}
-                    style={{ borderColor: suspicious ? "var(--color-flagged)" : "var(--color-border)" }}
-                  >
-                    <div>
-                      <p style={{ color: "var(--color-text-muted)" }} className="text-xs">Pair {i + 1} of {c.pairs.length}</p>
-                      <p style={{ color: "var(--color-text)" }}>
-                        {nameA} <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>({detail(holdingA)})</span>
-                        <span style={{ color: "var(--color-text-muted)" }}> and </span>
-                        {nameB} <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>({detail(holdingB)})</span>
-                      </p>
-                      {suspicious && (
-                        <span className="mt-1 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
-                          <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
-                          Worth a closer look
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex shrink-0 gap-2">
-                      <button
-                        type="button"
-                        disabled={busy}
-                        className="btn-secondary disabled:opacity-50"
-                        onClick={() => onDismiss(p.holdingIdA, p.holdingIdB)}
-                      >
-                        Same
-                      </button>
-                      <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(p.holdingIdA, p.holdingIdB)}>Not the same</button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
           </div>
         </div>
       )}
