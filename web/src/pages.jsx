@@ -7,7 +7,6 @@ import {
   CardLabel,
   ClickableDivergenceBar,
   DivergenceDonut,
-  DivergenceSplitChart,
   EmptyState,
   ErrorState,
   HeroCard,
@@ -267,27 +266,12 @@ export function BorrowersPage() {
             return true;
           });
           const multiLender = allRows.filter((b) => b.lenderCount >= 2).length;
-          const statusCounts = { agreement: 0, mild: 0, flagged: 0 };
-          for (const b of allRows) {
-            const status = statusByBorrower.get(b.canonicalName);
-            if (status === "FLAGGED") statusCounts.flagged += 1;
-            else if (status === "MILD") statusCounts.mild += 1;
-            else if (status === "AGREEMENT") statusCounts.agreement += 1;
-          }
 
           return (
             <>
-              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-5 sm:grid-cols-2">
                 <StatCard label="Borrowers" value={allRows.length} note="companies" tone="neutral" />
                 <StatCard label="Across lenders" value={multiLender} note="appear in 2+ lenders" tone="brand" />
-                <Card>
-                  <CardLabel>Status</CardLabel>
-                  {facilities.state === "ready" ? (
-                    <DivergenceSplitChart agreement={statusCounts.agreement} mild={statusCounts.mild} flagged={statusCounts.flagged} />
-                  ) : (
-                    <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
-                  )}
-                </Card>
               </div>
 
               <h2 className="mb-4 mt-8 text-lg font-semibold" style={{ color: "var(--color-text)" }}>Borrower directory</h2>

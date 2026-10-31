@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { Banner, Card, DotPlot, EmptyState, EvidenceTable, ExposureTag, HistoryStrip, inputClass, inputStyle, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, StatusPill, useFetch } from "./components.jsx";
-import { FLAG_TEXT, fixed, points, spreadRange, typeName } from "./format.js";
+import { Card, CardLabel, DotPlot, EmptyState, EvidenceTable, ExposureTag, FLAG_STATUS, HistoryStrip, inputClass, inputStyle, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, SourceLink, StatusPill, useFetch } from "./components.jsx";
+import { FLAG_TEXT, points, spreadRange, typeName, usd } from "./format.js";
 import { useDebounced } from "./pages.jsx";
 
 // The only flag and sort values CONTRACT.md's E4 accepts. "All" sends no flag parameter at all.
@@ -114,6 +114,12 @@ export function TriagePage() {
 }
 
 // ------------------------------------------------------------------ 4.5 Facility comparison
+const VALUE_HEADLINE = {
+  AGREEMENT: "Lenders are in agreement",
+  MILD: "Lenders show a mild difference",
+  FLAGGED: "Lenders show a large difference",
+};
+
 export function ComparisonPage() {
   const { id = "" } = useParams();
   const f = useFetch(() => getJson(`/api/facilities/${encodeURIComponent(id)}/comparison`), [id]);
@@ -121,49 +127,87 @@ export function ComparisonPage() {
   if (f.state === "error" && f.error instanceof ApiFailure && f.error.status === 404) {
     return (
       <>
-        <Link to="/facilities" className="underline">Back to triage</Link>
+        <Link to="/facilities" className="text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>&larr; Back to Triage</Link>
         <EmptyState>This facility is not in the current build.</EmptyState>
       </>
     );
   }
   return (
     <>
-      <Link to="/facilities" className="underline">Back to triage</Link>
+      <Link to="/facilities" className="mb-5 inline-block text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>&larr; Back to Triage</Link>
       <Load f={f}>
         {(c) => {
           const hist = c.history;
           const priorBy = new Map(hist?.rows.map((r) => [r.bdcName, r.priorFairValuePctPar]) ?? []);
+          const minPrincipal = Math.min(...c.rows.map((r) => Number(r.principal)));
+          const status = FLAG_STATUS[c.divergenceFlag] ?? { fg: "var(--color-text)", bg: "var(--color-border)" };
           return (
-            <div className="space-y-4">
-              <PageTitle sub={<>{typeName(c.instrumentType)}. {c.referenceRate ?? "Reference rate not disclosed"}, maturity bucket {c.maturityBucket ?? "Not disclosed"}. Period end: {c.periodEnd}<PeriodTag periodEnd={c.periodEnd} measured={overview?.measuredPeriodEnd} /></>}>
-                <span className="uppercase">{c.borrowerName}</span>
-              </PageTitle>
-              <Banner flag={c.divergenceFlag} points={c.divergencePts} />
-              <p><ExposureTag exposureUsd={c.exposureUsd} /></p>
-              <section>
-                <h2 className="mb-2 text-lg font-semibold">Lender comparison and evidence</h2>
-                <p className="mb-2 text-sm">Signals present, not causes:</p>
-                <p className="mb-2">{c.signals.length === 0 ? "No signals present in the disclosed fields." : c.signals.map((s) => <SignalChip key={s} code={s} />)}</p>
+            <div className="space-y-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>
+                  {typeName(c.instrumentType)}{c.referenceRate ? ` · ${c.referenceRate}` : ""}{c.maturityBucket ? ` · Maturity bucket ${c.maturityBucket}` : ""}
+                </p>
+                <h1 className="text-[28px] font-bold uppercase leading-tight" style={{ color: "var(--color-text)" }}>{c.borrowerName}</h1>
+                <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                  Reporting period: {c.periodEnd}<PeriodTag periodEnd={c.periodEnd} measured={overview?.measuredPeriodEnd} />
+                </p>
+              </div>
+
+              <div className="card-shadow rounded-[var(--radius-card)] border p-6" style={{ borderColor: "var(--color-border-strong)", background: status.bg }}>
+                <CardLabel>Value check</CardLabel>
+                <p className="text-xl font-bold" style={{ color: status.fg }}>{VALUE_HEADLINE[c.divergenceFlag] ?? FLAG_TEXT[c.divergenceFlag]}</p>
+                <p className="mt-4 text-3xl font-bold" style={{ color: "var(--color-text)" }}>{usd(String(minPrincipal))}</p>
+                <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Loan amount (lowest reported principal)</p>
+                <p className="mt-4 text-sm" style={{ color: "var(--color-text-secondary)" }}>Difference between lenders: {points(c.divergencePts)} points</p>
+                <p className="mt-3"><StatusPill flag={c.divergenceFlag} /></p>
+                <p className="mt-4 text-xs" style={{ color: "var(--color-text-muted)" }}>Exposure (ranking key, not an estimate of loss): {usd(c.exposureUsd)}</p>
+              </div>
+
+              {c.signals.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>Signals present, not causes</p>
+                  {c.signals.map((s) => <SignalChip key={s} code={s} />)}
+                </div>
+              )}
+
+              <Card>
+                <CardLabel>Lender reports</CardLabel>
                 <EvidenceTable rows={c.rows} />
-                {c.excludedCount > 0 && <p className="mt-2 text-sm">Note: {c.excludedCount} {c.excludedCount === 1 ? "holding is" : "holdings are"} excluded because {c.excludedCount === 1 ? "it has" : "they have"} no usable mark.</p>}
-              </section>
-              <div className="grid gap-4 md:grid-cols-2">
+                {c.excludedCount > 0 && (
+                  <p className="mt-3 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                    Note: {c.excludedCount} {c.excludedCount === 1 ? "holding is" : "holdings are"} excluded because {c.excludedCount === 1 ? "it has" : "they have"} no usable mark.
+                  </p>
+                )}
+              </Card>
+
+              <Card>
+                <CardLabel>How different are the values?</CardLabel>
+                <DotPlot rows={c.rows.map((r) => ({ label: r.bdcName.split(" ")[0], value: Number(r.fairValuePctPar) }))} />
+              </Card>
+
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Card>
-                  <h2 className="mb-2 font-semibold">Fair value as a percent of par</h2>
-                  <DotPlot rows={c.rows.map((r) => ({ label: r.bdcName.split(" ")[0], value: Number(r.fairValuePctPar) }))} />
+                  <CardLabel>Loan type</CardLabel>
+                  <p className="text-sm" style={{ color: "var(--color-text)" }}>{typeName(c.instrumentType)}</p>
+                  <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+                    <CardLabel>Interest rate</CardLabel>
+                    <p className="text-sm" style={{ color: "var(--color-text)" }}>{c.referenceRate ?? "Reference rate not disclosed"}</p>
+                  </div>
                 </Card>
                 <Card>
-                  <h2 className="mb-2 font-semibold">Facility details</h2>
-                  <p>Instrument: {typeName(c.instrumentType)}</p>
-                  <p>Rate: {c.referenceRate ?? "Reference rate not disclosed"}</p>
-                  <p>Maturity bucket: {c.maturityBucket ?? "Not disclosed"}</p>
-                  <p>Divergence: {fixed(c.divergencePts, 2)} points</p>
+                  <CardLabel>Maturity</CardLabel>
+                  <p className="text-sm" style={{ color: "var(--color-text)" }}>{c.maturityBucket ?? "Not disclosed"}</p>
+                  <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+                    <CardLabel>Reporting period</CardLabel>
+                    <p className="text-sm" style={{ color: "var(--color-text)" }}>{c.periodEnd}</p>
+                  </div>
                 </Card>
               </div>
+
               <Card>
-                <h2 className="mb-2 font-semibold">History</h2>
+                <CardLabel>History</CardLabel>
                 {hist === null ? (
-                  <p>Not yet measured</p>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Not yet measured</p>
                 ) : (
                   <>
                     <HistoryStrip
@@ -173,11 +217,24 @@ export function ComparisonPage() {
                         return { bdcName: r.bdcName, prior: p === null || p === undefined ? null : Number(p), current: Number(r.fairValuePctPar) };
                       })}
                     />
-                    <p className="mt-2 text-sm">
+                    <p className="mt-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
                       {hist.priorDivergencePts === null ? `Fewer than 2 lenders have a linked mark on ${hist.priorPeriodEnd}, so there is no prior gap.` : `Gap on ${hist.priorPeriodEnd}: ${points(hist.priorDivergencePts)} points, ${FLAG_TEXT[hist.priorDivergenceFlag ?? ""] ?? ""}.`}
                     </p>
                   </>
                 )}
+              </Card>
+
+              <Card>
+                <CardLabel>Source</CardLabel>
+                <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>These figures come from the lenders' SEC filings.</p>
+                <ul className="mt-3 divide-y" style={{ borderColor: "var(--color-border)" }}>
+                  {c.rows.map((r) => (
+                    <li key={r.bdcName + r.sourceUrl} className="flex items-center justify-between py-2 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                      <span style={{ color: "var(--color-text)" }}>{r.bdcName}</span>
+                      <SourceLink url={r.sourceUrl}>View filing</SourceLink>
+                    </li>
+                  ))}
+                </ul>
               </Card>
             </div>
           );

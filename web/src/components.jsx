@@ -92,7 +92,7 @@ export function Load({ f, children }) {
 // ------------------------------------------------------------------ cards and labels
 
 // Status colour tokens shared by every pill, bar and chip in the app. Keyed by the Flag enum.
-const FLAG_STATUS = {
+export const FLAG_STATUS = {
   AGREEMENT: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", dot: "var(--color-brand)" },
   MILD: { fg: "var(--color-review)", bg: "var(--color-review-light)", dot: "var(--color-review)" },
   FLAGGED: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", dot: "var(--color-flagged)" },
@@ -495,7 +495,10 @@ function range(values) {
   return [Math.min(...values), Math.max(...values)];
 }
 
-// One dot per lender on a fair value / par axis, inline SVG, no chart library.
+// One dot per lender on a fair value / par axis, inline SVG, no chart library. Alternating dot
+// colours (brand, brand-dark, review, flagged) only to tell lenders apart visually; colour carries
+// no status meaning here, the axis position is the real data.
+const DOT_COLORS = ["var(--color-brand-dark)", "var(--color-review)", "var(--color-flagged)", "var(--color-brand)"];
 export function DotPlot({ rows }) {
   const [lo, hi] = range(rows.map((r) => r.value));
   const pad = Math.max((hi - lo) * 0.15, 0.5);
@@ -503,11 +506,11 @@ export function DotPlot({ rows }) {
   const x = (v) => 20 + ((v - a) / (b - a)) * 560;
   return (
     <svg viewBox="0 0 600 60" role="img" aria-label="Fair value as a percent of par, one dot per lender" className="w-full">
-      <line x1="20" y1="30" x2="580" y2="30" stroke="currentColor" />
+      <line x1="20" y1="30" x2="580" y2="30" stroke="var(--color-border)" strokeWidth="2" />
       {rows.map((r, i) => (
         <g key={r.label}>
-          <circle cx={x(r.value)} cy="30" r="6" fill="currentColor" />
-          <text x={x(r.value)} y={i % 2 ? 54 : 14} fontSize="11" textAnchor="middle" fill="currentColor">{r.label} {r.value.toFixed(2)}</text>
+          <circle cx={x(r.value)} cy="30" r="7" fill={DOT_COLORS[i % DOT_COLORS.length]} stroke="var(--color-surface)" strokeWidth="2" />
+          <text x={x(r.value)} y={i % 2 ? 54 : 14} fontSize="11" fontWeight="600" textAnchor="middle" fill="var(--color-text)">{r.label} {r.value.toFixed(2)}</text>
         </g>
       ))}
     </svg>
@@ -523,15 +526,15 @@ export function HistoryStrip({ rows, persistence }) {
   const x = (v) => 150 + ((v - a) / (b - a)) * 430;
   return (
     <div>
-      <p className="mb-1">Persistence: <PersistenceTag persistence={persistence} /></p>
+      <p className="mb-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>Persistence: <PersistenceTag persistence={persistence} /></p>
       <svg viewBox={`0 0 600 ${rows.length * 28 + 8}`} role="img" aria-label="Prior quarter mark to current mark for each lender" className="w-full">
         {rows.map((r, i) => (
           <g key={r.bdcName}>
-            <text x="0" y={i * 28 + 22} fontSize="11" fill="currentColor">{r.bdcName.slice(0, 22)}</text>
-            {r.prior !== null && <line x1={x(r.prior)} y1={i * 28 + 18} x2={x(r.current)} y2={i * 28 + 18} stroke="currentColor" />}
-            {r.prior !== null && <circle cx={x(r.prior)} cy={i * 28 + 18} r="4" fill="none" stroke="currentColor" strokeWidth="2" />}
-            <circle cx={x(r.current)} cy={i * 28 + 18} r="5" fill="currentColor" />
-            <text x="590" y={i * 28 + 22} fontSize="10" textAnchor="end" fill="currentColor">{r.prior === null ? "No linked prior mark" : `${r.prior.toFixed(2)} to ${r.current.toFixed(2)}`}</text>
+            <text x="0" y={i * 28 + 22} fontSize="11" fill="var(--color-text-secondary)">{r.bdcName.slice(0, 22)}</text>
+            {r.prior !== null && <line x1={x(r.prior)} y1={i * 28 + 18} x2={x(r.current)} y2={i * 28 + 18} stroke="var(--color-brand)" strokeWidth="2" />}
+            {r.prior !== null && <circle cx={x(r.prior)} cy={i * 28 + 18} r="4" fill="var(--color-surface)" stroke="var(--color-brand)" strokeWidth="2" />}
+            <circle cx={x(r.current)} cy={i * 28 + 18} r="5" fill="var(--color-brand-dark)" />
+            <text x="590" y={i * 28 + 22} fontSize="10" textAnchor="end" fill="var(--color-text-secondary)">{r.prior === null ? "No linked prior mark" : `${r.prior.toFixed(2)} to ${r.current.toFixed(2)}`}</text>
           </g>
         ))}
       </svg>

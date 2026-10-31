@@ -103,9 +103,9 @@ input:focus-visible {
 }
 
 .btn-secondary[aria-pressed="true"] {
-  background: var(--color-text);
-  border-color: var(--color-text);
-  color: var(--color-surface);
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  color: var(--color-brand-dark);
 }
 
 @keyframes toast-in {
