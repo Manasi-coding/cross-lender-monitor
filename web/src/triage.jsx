@@ -1,113 +1,163 @@
-import { useEffect, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { useState } from "react";
+import { Link, useParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { Card, CardLabel, EmptyState, EvidenceTable, ExposureTag, FLAG_STATUS, HistoryStrip, inputClass, inputStyle, LenderValueBars, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, SourceLink, StatusPill, useFetch } from "./components.jsx";
-import { FLAG_TEXT, points, spreadRange, typeName } from "./format.js";
-import { useDebounced } from "./pages.jsx";
+import { BarList, Card, CardLabel, EmptyState, EvidenceTable, FLAG_STATUS, HistoryStrip, LenderValueBars, Load, PeriodTag, SignalChip, SourceLink, StatCard, StatusDot, useFetch } from "./components.jsx";
+import { FLAG_TEXT, NOT_YET, points, typeName, usd } from "./format.js";
 
-// The only flag and sort values CONTRACT.md's E4 accepts. "All" sends no flag parameter at all.
-const FLAG_CHIPS = [
-  [undefined, "All"],
+// Buckets of divergencePts, a field E4 already returns for every facility. Purely a client-side
+// grouping of an existing number into fixed ranges, the same style as E9's own sensitivity
+// thresholds (1, 2, 5 points); no new field, no invented category.
+const DIFF_BUCKETS = [
+  { label: "0-1 pts", min: 0, max: 1, color: "var(--color-brand)" },
+  { label: "1-2 pts", min: 1, max: 2, color: "var(--color-brand-dark)" },
+  { label: "2-5 pts", min: 2, max: 5, color: "var(--color-review)" },
+  { label: "5+ pts", min: 5, max: Infinity, color: "var(--color-flagged)" },
+];
+const FACILITY_FILTERS = [
+  ["all", "All"],
   ["AGREEMENT", "Agreement"],
-  ["MILD", "Mild"],
+  ["MILD", "Review"],
   ["FLAGGED", "Flagged"],
+  ["multi", "2+ lenders"],
 ];
-const SORTS = [
-  ["borrower", "Borrower"],
-  ["exposure", "Exposure"],
-];
+const FACILITY_PAGE_SIZE = 6;
 
 // ------------------------------------------------------------------ 4.4 Triage (the Facilities page)
 export function TriagePage() {
-  const [params, setParams] = useSearchParams();
-  const urlFlag = params.get("flag") ?? undefined;
-  const urlSort = params.get("sort") === "exposure" ? "exposure" : "borrower";
-  const [text, setText] = useState(params.get("search") ?? "");
-  useEffect(() => setText(params.get("search") ?? ""), [params]);
-  const q = useDebounced(text.trim());
-
-  const setQuery = (next) => {
-    const merged = { flag: urlFlag, sort: urlSort, search: params.get("search") ?? undefined, ...next };
-    const clean = {};
-    for (const [k, v] of Object.entries(merged)) if (v) clean[k] = v;
-    setParams(clean, { replace: true });
-  };
-
-  useEffect(() => {
-    // Keep the URL's search term in step with the debounced text, without fighting the user's typing.
-    if (q !== (params.get("search") ?? "")) setQuery({ search: q || undefined });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
-
-  const f = useFetch(
-    () => getJson("/api/facilities", { flag: urlFlag, sort: urlSort, search: q || undefined }),
-    [urlFlag, urlSort, q],
-  );
+  // One unfiltered fetch (E4, sort=exposure, no flag or search parameter) drives the KPI tiles,
+  // both charts and the table; the filter pills and "2+ lenders" slice this same list client side,
+  // so switching between them does not refetch.
+  const f = useFetch(() => getJson("/api/facilities", { sort: "exposure" }), []);
+  const [filter, setFilter] = useState("all");
+  const [visible, setVisible] = useState(FACILITY_PAGE_SIZE);
   const { overview } = useShared();
+
   return (
     <>
-      <PageTitle sub="Start with the cases where reported values differ the most">Triage</PageTitle>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-2">
-          {FLAG_CHIPS.map(([flag, label]) => (
-            <button key={label} aria-pressed={urlFlag === flag} onClick={() => setQuery({ flag })} className="btn-secondary">
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="flex items-center gap-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-          Sort
-          <select
-            value={urlSort}
-            onChange={(e) => setQuery({ sort: e.target.value === "exposure" ? "exposure" : undefined })}
-            className="rounded-xl border px-2.5 py-1.5 text-sm outline-none focus:border-[var(--color-brand)]"
-            style={inputStyle}
-          >
-            {SORTS.map(([v, label]) => (
-              <option key={v} value={v}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Search borrower"
-          aria-label="Search borrower"
-          maxLength={200}
-          className={`max-w-md flex-1 ${inputClass}`}
-          style={inputStyle}
-        />
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold uppercase tracking-wide" style={{ color: "var(--color-text)" }}>Facilities</h1>
+        <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+          Loans reported by the monitored lenders &middot; Reporting period: {overview?.measuredPeriodEnd ?? NOT_YET}
+        </p>
       </div>
+
       <Load f={f}>
-        {(rows) =>
-          rows.length === 0 ? (
-            <EmptyState>No facilities match this filter.</EmptyState>
-          ) : (
-            <div className="space-y-4">
-              {rows.map((x) => (
-                <Card key={x.facilityId} to={`/facilities/${x.facilityId}`}>
-                  <div className="flex flex-wrap justify-between gap-2">
-                    <div>
-                      <p className="font-semibold uppercase" style={{ color: "var(--color-text)" }}>{x.borrowerName}<PeriodTag periodEnd={x.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
-                      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{typeName(x.instrumentType)}</p>
-                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.referenceRate ?? "Reference rate not disclosed"}, spread {spreadRange(x.spreadBps.min, x.spreadBps.max)}</p>
-                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.lenderCount} lenders</p>
-                    </div>
-                    <div className="text-right">
-                      <p><StatusPill flag={x.divergenceFlag} /></p>
-                      <p className="mt-1 text-sm font-medium" style={{ color: "var(--color-text)" }}>{points(x.divergencePts)} points</p>
-                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}><ExposureTag exposureUsd={x.exposureUsd} /></p>
-                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.signalCount} {x.signalCount === 1 ? "signal" : "signals"}</p>
-                      <p className="mt-1"><PersistenceTag persistence={x.persistence} /></p>
-                    </div>
-                  </div>
-                  <p className="mt-3 text-sm font-medium" style={{ color: "var(--color-brand-dark)" }}>View comparison &rarr;</p>
+        {(allRows) => {
+          const counts = { agreement: 0, mild: 0, flagged: 0 };
+          for (const r of allRows) {
+            if (r.divergenceFlag === "FLAGGED") counts.flagged += 1;
+            else if (r.divergenceFlag === "MILD") counts.mild += 1;
+            else counts.agreement += 1;
+          }
+          const total = allRows.length;
+          const pct = (n) => (total === 0 ? "0%" : `${Math.round((n / total) * 100)}%`);
+
+          const bucketRows = DIFF_BUCKETS.map((b) => ({
+            label: b.label,
+            color: b.color,
+            value: allRows.filter((r) => {
+              const p = Number(r.divergencePts);
+              return p >= b.min && (b.max === Infinity ? true : p < b.max);
+            }).length,
+          }));
+
+          const filtered = allRows.filter((r) => {
+            if (filter === "multi") return r.lenderCount >= 2;
+            if (filter === "AGREEMENT" || filter === "MILD" || filter === "FLAGGED") return r.divergenceFlag === filter;
+            return true;
+          });
+          const shown = filtered.slice(0, visible);
+
+          return (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <StatCard compact label="Facilities" value={total} tone="neutral" onClick={() => setFilter("all")} />
+                <StatCard compact label="Agreement" value={counts.agreement} note={pct(counts.agreement)} tone="brand" onClick={() => setFilter("AGREEMENT")} />
+                <StatCard compact label="Review" value={counts.mild} note={pct(counts.mild)} tone="review" onClick={() => setFilter("MILD")} />
+                <StatCard compact label="Flagged" value={counts.flagged} note={pct(counts.flagged)} tone="flagged" onClick={() => setFilter("FLAGGED")} />
+              </div>
+
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <Card compact>
+                  <CardLabel>Facilities by status</CardLabel>
+                  <BarList
+                    compact
+                    rows={[
+                      { label: "Agreement", value: counts.agreement, color: "var(--color-brand)" },
+                      { label: "Review", value: counts.mild, color: "var(--color-review)" },
+                      { label: "Flagged", value: counts.flagged, color: "var(--color-flagged)" },
+                    ]}
+                  />
                 </Card>
-              ))}
-            </div>
-          )
-        }
+                <Card compact>
+                  <CardLabel>Value difference</CardLabel>
+                  <BarList compact rows={bucketRows} />
+                </Card>
+              </div>
+
+              <div role="group" aria-label="Filter facilities" className="mt-3 flex flex-wrap gap-2">
+                {FACILITY_FILTERS.map(([v, label]) => (
+                  <button key={v} aria-pressed={filter === v} onClick={() => setFilter(v)} className="btn-secondary">
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <Card compact className="mt-3">
+                <CardLabel>Facility directory</CardLabel>
+                {filtered.length === 0 ? (
+                  <EmptyState>No facilities match this filter.</EmptyState>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead>
+                          <tr style={{ color: "var(--color-text-secondary)" }}>
+                            <th className="py-2 pr-4 font-medium">Facility / Borrower</th>
+                            <th className="py-2 pr-4 font-medium">Lenders</th>
+                            <th className="py-2 pr-4 font-medium" title="Ranking key, not an estimate of loss">Exposure</th>
+                            <th className="py-2 pr-4 font-medium">Difference</th>
+                            <th className="py-2 pr-4 font-medium">Status</th>
+                            <th className="py-2 pr-2 font-medium">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {shown.map((r) => (
+                            <tr key={r.facilityId} className="table-row-hover border-t transition-colors" style={{ borderColor: "var(--color-border)" }}>
+                              <td className="py-2 pr-4">
+                                <span className="font-medium" style={{ color: "var(--color-text)" }}>{r.borrowerName}</span>
+                                <span className="ml-1 text-xs" style={{ color: "var(--color-text-muted)" }}>{typeName(r.instrumentType)}</span>
+                                <PeriodTag periodEnd={r.periodEnd} measured={overview?.measuredPeriodEnd} />
+                              </td>
+                              <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.lenderCount}</td>
+                              <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{usd(r.exposureUsd)}</td>
+                              <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{points(r.divergencePts)} pts</td>
+                              <td className="py-2 pr-4"><StatusDot flag={r.divergenceFlag} label={r.divergenceFlag === "MILD" ? "Review" : undefined} /></td>
+                              <td className="py-2 pr-2">
+                                <Link to={`/facilities/${r.facilityId}`} className="text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>
+                                  View &rarr;
+                                </Link>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Showing {shown.length} of {filtered.length}</span>
+                      {visible < filtered.length && (
+                        <button className="btn-secondary" onClick={() => setVisible(filtered.length)}>
+                          View all &rarr;
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </Card>
+            </>
+          );
+        }}
       </Load>
     </>
   );

@@ -278,9 +278,9 @@ export function BorrowersPage() {
           return (
             <>
               <div className="mt-2 grid gap-5 sm:grid-cols-3">
-                <StatCard label="Total borrowers" value={allRows.length} note="companies" tone="neutral" />
-                <StatCard label="Across lenders" value={multiLender} note="appear in 2+ lenders" tone="brand" />
-                <StatCard label="Flagged" value={flaggedCount} note="need a closer look" tone="flagged" />
+                <StatCard label="Total borrowers" value={allRows.length} note="companies" tone="neutral" onClick={() => setFilter("all")} />
+                <StatCard label="Across lenders" value={multiLender} note="appear in 2+ lenders" tone="brand" onClick={() => setFilter("multi")} />
+                <StatCard label="Flagged" value={flaggedCount} note="need a closer look" tone="flagged" onClick={() => setFilter("flagged")} />
               </div>
 
               <Card className="mt-5">
@@ -314,8 +314,8 @@ export function BorrowersPage() {
                         <Link
                           key={b.canonicalBorrowerId}
                           to={`/borrowers/${b.canonicalBorrowerId}`}
-                          className="card-shadow block rounded-[var(--radius-card)] border p-5 transition-colors"
-                          style={{ borderColor: s ? s.dot : "var(--color-border-strong)", background: s ? s.bg : "var(--color-surface)" }}
+                          className="card-shadow block rounded-[var(--radius-card)] border-2 p-5 transition-colors hover:brightness-[0.98]"
+                          style={{ borderColor: s ? s.dot : "var(--color-border-strong)", background: s ? s.faint : "var(--color-surface)" }}
                         >
                           <p className="font-semibold uppercase" style={{ color: "var(--color-text)" }}>{b.canonicalName}</p>
                           <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>

@@ -18,6 +18,7 @@
   /* Deep forest green identity, soft light-green accent (sidebar + charts + hero), as the reference dashboard. */
   --color-brand: #9bc97e;
   --color-brand-light: #eef5e8;
+  --color-brand-faint: #f8fbf6;
   --color-brand-dark: #16301f;
 
   --color-sidebar-bg: #13261a;
@@ -29,8 +30,10 @@
 
   --color-flagged: #c85c5c;
   --color-flagged-light: #fbecec;
+  --color-flagged-faint: #fdf6f6;
   --color-review: #c9953c;
   --color-review-light: #fbf3e2;
+  --color-review-faint: #fdfaf4;
 
   --radius-card: 14px;
 }
@@ -49,8 +52,11 @@ html[data-theme="dark"] {
   --color-text-secondary: #9aa6b4;
   --color-text-muted: #6d7889;
   --color-brand-light: #1c2a21;
+  --color-brand-faint: #182720;
   --color-flagged-light: #2a1c1c;
+  --color-flagged-faint: #241a1a;
   --color-review-light: #2b2419;
+  --color-review-faint: #241f17;
   color-scheme: dark;
 }
 html[data-theme="dark"] {

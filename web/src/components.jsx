@@ -93,20 +93,31 @@ export function Load({ f, children }) {
 
 // Status colour tokens shared by every pill, bar and chip in the app. Keyed by the Flag enum.
 export const FLAG_STATUS = {
-  AGREEMENT: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", dot: "var(--color-brand)" },
-  MILD: { fg: "var(--color-review)", bg: "var(--color-review-light)", dot: "var(--color-review)" },
-  FLAGGED: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", dot: "var(--color-flagged)" },
+  AGREEMENT: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", faint: "var(--color-brand-faint)", dot: "var(--color-brand)" },
+  MILD: { fg: "var(--color-review)", bg: "var(--color-review-light)", faint: "var(--color-review-faint)", dot: "var(--color-review)" },
+  FLAGGED: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", faint: "var(--color-flagged-faint)", dot: "var(--color-flagged)" },
 };
 
-export function Card({ children, to, className = "" }) {
-  const base = `card-shadow rounded-[var(--radius-card)] border p-5 ${className}`;
+// `to` renders a Link (navigates), `onClick` renders a button (acts in place, e.g. applying a
+// filter). A card never gets both. `compact` tightens padding for dense, single-screen layouts.
+export function Card({ children, to, onClick, compact = false, className = "" }) {
+  const base = `card-shadow rounded-[var(--radius-card)] border ${compact ? "p-3.5" : "p-5"} ${className}`;
   const style = { background: "var(--color-surface)", borderColor: "var(--color-border-strong)" };
-  if (!to) return <div className={base} style={style}>{children}</div>;
-  return (
-    <Link to={to} className={`block transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
-      {children}
-    </Link>
-  );
+  if (to) {
+    return (
+      <Link to={to} className={`block transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
+        {children}
+      </Link>
+    );
+  }
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
+        {children}
+      </button>
+    );
+  }
+  return <div className={base} style={style}>{children}</div>;
 }
 
 // A small all-caps section label, used as the header of a card in place of a generic heading.
@@ -146,16 +157,16 @@ const TONE = {
 
 // value is shown as-is. Pass countTo (a real number already in hand) plus format to animate the
 // digits up to that same number on mount; the final frame always renders format(countTo) exactly.
-export function StatCard({ label, value, countTo, format, to, note, tone = "neutral", icon }) {
+export function StatCard({ label, value, countTo, format, to, onClick, note, tone = "neutral", icon, compact = false }) {
   const t = TONE[tone] ?? TONE.neutral;
   const animated = useCountUp(countTo ?? NaN);
   const shown = Number.isFinite(countTo) ? format(animated) : value;
   return (
-    <Card to={to}>
+    <Card to={to} onClick={onClick} compact={compact}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{label}</p>
-          <p className="mt-2 text-[28px] font-bold leading-none tabular-nums" style={{ color: "var(--color-text)" }}>{shown}</p>
+          <p className={`mt-2 font-bold leading-none tabular-nums ${compact ? "text-xl" : "text-[28px]"}`} style={{ color: "var(--color-text)" }}>{shown}</p>
           {note && <p className="mt-1.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>{note}</p>}
         </div>
         {icon && (
@@ -345,6 +356,13 @@ export function StatusPill({ flag }) {
   );
 }
 
+// A dot-only status indicator, for dense tables where a full pill would not fit. The flag's name
+// is still in the accessible name for screen readers.
+export function StatusDot({ flag, label }) {
+  const s = FLAG_STATUS[flag] ?? { dot: "var(--color-text-secondary)" };
+  return <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: s.dot }} role="img" aria-label={label ?? FLAG_TEXT[flag] ?? flag} title={label ?? FLAG_TEXT[flag] ?? flag} />;
+}
+
 export function Banner({ flag, points }) {
   const s = FLAG_STATUS[flag] ?? { fg: "var(--color-text)", bg: "var(--color-border)" };
   return (
@@ -383,28 +401,34 @@ export function PersistenceTag({ persistence }) {
 // ------------------------------------------------------------------ chart primitives (real data only)
 
 // Horizontal bars for the three divergence flags, counts supplied by the caller (overview.divergenceSplit).
-export function DivergenceSplitChart({ agreement, mild, flagged }) {
-  const rows = [
-    ["AGREEMENT", agreement],
-    ["MILD", mild],
-    ["FLAGGED", flagged],
-  ];
-  const max = Math.max(1, agreement, mild, flagged);
+// A labelled horizontal bar per row, each bar's length relative to the SUM of all rows (not the
+// largest row), so a row that happens to be the biggest does not render as a full-width bar.
+export function BarList({ rows, compact = false }) {
+  const total = Math.max(1, rows.reduce((sum, r) => sum + r.value, 0));
   return (
-    <div className="space-y-3">
-      {rows.map(([flag, n]) => {
-        const s = FLAG_STATUS[flag];
-        return (
-          <div key={flag} className="flex items-center gap-3">
-            <span className="w-20 shrink-0 text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>{FLAG_TEXT[flag]}</span>
-            <div className="h-2.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
-              <div className="h-full rounded-full" style={{ width: `${(n / max) * 100}%`, background: s.dot }} />
-            </div>
-            <span className="w-8 shrink-0 text-right text-sm font-semibold" style={{ color: "var(--color-text)" }}>{n}</span>
+    <div className={compact ? "space-y-2" : "space-y-3"}>
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center gap-3">
+          <span className="w-20 shrink-0 text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>{r.label}</span>
+          <div className={`${compact ? "h-2" : "h-2.5"} flex-1 overflow-hidden rounded-full`} style={{ background: "var(--color-border)" }}>
+            <div className="h-full rounded-full" style={{ width: `${(r.value / total) * 100}%`, background: r.color }} />
           </div>
-        );
-      })}
+          <span className="w-8 shrink-0 text-right text-sm font-semibold" style={{ color: "var(--color-text)" }}>{r.value}</span>
+        </div>
+      ))}
     </div>
+  );
+}
+
+export function DivergenceSplitChart({ agreement, mild, flagged }) {
+  return (
+    <BarList
+      rows={[
+        { label: FLAG_TEXT.AGREEMENT, value: agreement, color: FLAG_STATUS.AGREEMENT.dot },
+        { label: FLAG_TEXT.MILD, value: mild, color: FLAG_STATUS.MILD.dot },
+        { label: FLAG_TEXT.FLAGGED, value: flagged, color: FLAG_STATUS.FLAGGED.dot },
+      ]}
+    />
   );
 }
 
