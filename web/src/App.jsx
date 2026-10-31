@@ -59,15 +59,15 @@ export default function App() {
     <Ctx.Provider value={{ overview, refresh }}>
       <div className="flex min-h-screen flex-col md:flex-row" style={{ background: "var(--color-bg)" }}>
         <nav
-          className="flex flex-col border-b p-5 md:w-60 md:shrink-0 md:border-b-0 md:border-r"
-          style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
+          className="flex flex-col p-5 md:w-60 md:shrink-0"
+          style={{ background: "var(--color-sidebar-bg)" }}
           aria-label="Main"
         >
           <div className="mb-6 flex items-center gap-2.5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "var(--color-brand)", color: "#ffffff" }}>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "var(--color-brand)", color: "var(--color-sidebar-active-text)" }}>
               <Icon name="layers" size={18} />
             </span>
-            <p className="text-sm font-bold uppercase tracking-wide leading-tight" style={{ color: "var(--color-text)" }}>
+            <p className="text-sm font-bold uppercase tracking-wide leading-tight text-white">
               Valuation<br />Monitor
             </p>
           </div>
@@ -78,13 +78,11 @@ export default function App() {
                   to={to}
                   end={to === "/"}
                   className={({ isActive }) =>
-                    `flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive ? "" : "hover:bg-[var(--color-brand-light)]"
-                    }`
+                    `sidebar-link flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${isActive ? "" : "sidebar-link-inactive"}`
                   }
                   style={({ isActive }) => ({
-                    color: isActive ? "var(--color-brand-dark)" : "var(--color-text-secondary)",
-                    background: isActive ? "var(--color-brand-light)" : "transparent",
+                    color: isActive ? "var(--color-sidebar-active-text)" : "var(--color-sidebar-text)",
+                    background: isActive ? "var(--color-sidebar-active-bg)" : "transparent",
                   })}
                 >
                   <span className="flex items-center gap-2.5">
@@ -94,7 +92,7 @@ export default function App() {
                   {label === "Review" && overview && overview.pendingReviewCount > 0 && (
                     <span
                       className="rounded-full px-1.5 py-0.5 text-xs font-semibold"
-                      style={{ background: "var(--color-review-light)", color: "var(--color-review)" }}
+                      style={{ background: "var(--color-brand)", color: "var(--color-sidebar-active-text)" }}
                     >
                       {overview.pendingReviewCount}
                     </span>
@@ -104,7 +102,7 @@ export default function App() {
             ))}
           </ul>
           {overview && (
-            <div className="mt-6 hidden space-y-1 border-t pt-4 text-xs md:block" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+            <div className="mt-6 hidden space-y-1 border-t pt-4 text-xs md:block" style={{ borderColor: "var(--color-sidebar-border)", color: "var(--color-sidebar-text)" }}>
               <p>{overview.bdcCount} {overview.bdcCount === 1 ? "Lender" : "Lenders"}</p>
               <p>{overview.quarterCount} {overview.quarterCount === 1 ? "Quarter" : "Quarters"}</p>
             </div>

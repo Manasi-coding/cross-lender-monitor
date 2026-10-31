@@ -57,15 +57,14 @@ export function OverviewPage() {
 
   return (
     <>
-      <PageTitle sub="What is happening across the monitored lenders">Overview</PageTitle>
+      <PageTitle>Overview</PageTitle>
 
       <HeroCard
         eyebrow={`Measured quarter · ${o.measuredPeriodEnd}`}
-        title={`${o.facilityCount} facilities are being tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`}
-        subtitle={
+        title={
           s
-            ? `${s.flagged} ${s.flagged === 1 ? "case needs" : "cases need"} a closer look, with ${usd(o.flaggedExposureUsd)} of flagged exposure in total.`
-            : "Divergence has not been measured yet for this quarter."
+            ? `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"} — ${s.flagged} ${s.flagged === 1 ? "case needs" : "cases need"} a closer look, ${usd(o.flaggedExposureUsd)} flagged exposure in total.`
+            : `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}.`
         }
         actions={
           <>
@@ -99,7 +98,7 @@ export function OverviewPage() {
           )}
         </Card>
         <Card>
-          <CardLabel>Where are the biggest differences?</CardLabel>
+          <CardLabel>Biggest differences</CardLabel>
           <Load f={flagged}>
             {() =>
               topExposureByBorrower.length === 0 ? (
@@ -160,26 +159,18 @@ export function OverviewPage() {
         </Load>
       </Card>
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <Card>
-          <CardLabel>Data coverage</CardLabel>
-          <ul className="space-y-1.5 text-sm" style={{ color: "var(--color-text)" }}>
-            <li>{o.bdcCount} {o.bdcCount === 1 ? "lender" : "lenders"}</li>
-            <li>{o.quarterCount} {o.quarterCount === 1 ? "quarter" : "quarters"}</li>
-            <li>{o.facilityCount} facilities</li>
-          </ul>
-          <p className="mt-3 text-xs" style={{ color: "var(--color-text-muted)" }}>Latest: {o.measuredPeriodEnd}</p>
-        </Card>
-        <Card>
-          <CardLabel>What does &ldquo;flagged&rdquo; mean?</CardLabel>
-          <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
-            The lenders&rsquo; valuations differ enough to deserve a closer look.
-          </p>
-          <p className="mt-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-            It is a ranking signal, not a prediction of loss.
-          </p>
-        </Card>
-      </div>
+      <Card className="mt-6">
+        <CardLabel>Data coverage</CardLabel>
+        <p className="text-sm" style={{ color: "var(--color-text)" }}>
+          {o.bdcCount} {o.bdcCount === 1 ? "lender" : "lenders"}
+          <span style={{ color: "var(--color-text-muted)" }}> &nbsp;&middot;&nbsp; </span>
+          {o.quarterCount} {o.quarterCount === 1 ? "quarter" : "quarters"}
+          <span style={{ color: "var(--color-text-muted)" }}> &nbsp;&middot;&nbsp; </span>
+          {o.facilityCount} facilities
+          <span style={{ color: "var(--color-text-muted)" }}> &nbsp;&middot;&nbsp; </span>
+          <span style={{ color: "var(--color-text-secondary)" }}>Latest: {o.measuredPeriodEnd}</span>
+        </p>
+      </Card>
     </>
   );
 }

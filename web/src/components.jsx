@@ -66,7 +66,7 @@ const FLAG_STATUS = {
 
 export function Card({ children, to, className = "" }) {
   const base = `card-shadow rounded-[var(--radius-card)] border p-5 ${className}`;
-  const style = { background: "var(--color-surface)", borderColor: "var(--color-border)" };
+  const style = { background: "var(--color-surface)", borderColor: "var(--color-border-strong)" };
   if (!to) return <div className={base} style={style}>{children}</div>;
   return (
     <Link to={to} className={`block transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>

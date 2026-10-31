@@ -9,14 +9,23 @@
   --color-bg: #f5f7f5;
   --color-surface: #ffffff;
   --color-border: #e4e8e5;
+  --color-border-strong: rgba(18, 38, 27, 0.2);
 
   --color-text: #172033;
   --color-text-secondary: #667085;
   --color-text-muted: #98a2b3;
 
-  --color-brand: #5e8f68;
-  --color-brand-light: #eaf3ec;
-  --color-brand-dark: #416b4a;
+  /* Deep forest green identity, lime accent (sidebar + charts), as the reference dashboard. */
+  --color-brand: #8dc63f;
+  --color-brand-light: #eaf6dc;
+  --color-brand-dark: #16301f;
+
+  --color-sidebar-bg: #13261a;
+  --color-sidebar-text: #aebcb0;
+  --color-sidebar-active-bg: #8dc63f;
+  --color-sidebar-active-text: #13261a;
+  --color-sidebar-hover-bg: rgba(255, 255, 255, 0.06);
+  --color-sidebar-border: rgba(255, 255, 255, 0.08);
 
   --color-flagged: #c85c5c;
   --color-flagged-light: #fbecec;
@@ -35,6 +44,7 @@ html[data-theme="dark"] {
   --color-bg: #11161c;
   --color-surface: #182029;
   --color-border: #2a333d;
+  --color-border-strong: rgba(255, 255, 255, 0.16);
   --color-text: #eef1f4;
   --color-text-secondary: #9aa6b4;
   --color-text-muted: #6d7889;
@@ -88,6 +98,10 @@ input:focus-visible {
   background: var(--color-brand-light);
   border-color: var(--color-brand);
 }
+.sidebar-link-inactive:hover {
+  background: var(--color-sidebar-hover-bg) !important;
+}
+
 .btn-secondary[aria-pressed="true"] {
   background: var(--color-text);
   border-color: var(--color-text);
