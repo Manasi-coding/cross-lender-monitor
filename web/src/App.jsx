@@ -11,6 +11,7 @@ const NAV = [
   ["/borrowers", "Borrowers", "layers"],
   ["/facilities", "Triage", "chart"],
   ["/review", "Review", "search"],
+  ["/decisions", "Decisions", "flag"],
   ["/metrics", "Metrics", "check"],
   ["/filings", "Filings", "doc"],
 ];

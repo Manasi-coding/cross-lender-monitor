@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiFailure, getJson, postJson } from "./api.js";
 import { useShared } from "./App.jsx";
 import { Card, CardLabel, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, Toast, useFetch } from "./components.jsx";
+import { clearDecisions, getDecisions, recordDecision } from "./decisions.js";
 import { bps, fixed, typeName } from "./format.js";
 // 4.6 Review queue. The score is shown here (it is hidden only on the labeling page), and only
 // inside each case's "Technical details" toggle on this page's default plain-language view.
@@ -37,12 +38,13 @@ export function ReviewPage() {
   // The card is only faded and the list only refetched after the write has actually succeeded,
   // never before. A failure leaves the card exactly as it was and shows the error instead.
   const act = useCallback(
-    async (a, b, action, fadeKey) => {
+    async (a, b, action, fadeKey, title, context) => {
       if (busy) return;
       setBusy(true);
       try {
-        await postJson(`/api/review-queue/${a}/${b}/${action}`);
+        const result = await postJson(`/api/review-queue/${a}/${b}/${action}`);
         setNotice(null);
+        recordDecision({ holdingIdA: result.holdingIdA, holdingIdB: result.holdingIdB, status: result.status, title, context });
         setFading((prev) => new Set(prev).add(fadeKey));
         await new Promise((resolve) => setTimeout(resolve, FADE_MS));
         setCompleted((n) => n + 1);
@@ -141,7 +143,15 @@ export function ReviewPage() {
                 <>
                   <div className="space-y-3">
                     {primary.type === "cluster" ? (
-                      <ClusterCard c={primary} measured={overview?.measuredPeriodEnd} busy={busy} fading={fading} index={idx + 1} total={items.length} onReject={(a, b) => act(a, b, "reject", `pair-${a}-${b}`)} />
+                      <ClusterCard
+                        c={primary}
+                        measured={overview?.measuredPeriodEnd}
+                        busy={busy}
+                        fading={fading}
+                        index={idx + 1}
+                        total={items.length}
+                        onReject={(a, b) => act(a, b, "reject", `pair-${a}-${b}`, primary.holdings[0]?.rawName ?? "Name not disclosed", "cluster")}
+                      />
                     ) : (
                       <PairCard
                         p={primary}
@@ -150,7 +160,7 @@ export function ReviewPage() {
                         fading={fading.has(key(primary))}
                         index={idx + 1}
                         total={items.length}
-                        onAct={(a, b, action) => act(a, b, action, key(primary))}
+                        onAct={(a, b, action) => act(a, b, action, key(primary), primary.rawNameA ?? primary.rawNameB ?? "Name not disclosed", "pair")}
                       />
                     )}
                   </div>
@@ -333,5 +343,86 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
         </div>
       )}
     </Card>
+  );
+}
+
+// ------------------------------------------------------------------ Decisions record
+// A local, browser-stored history of review decisions. Every row is a real past Accept/Reject/
+// Separate action this browser sent, built from the holdingIdA/holdingIdB/status that E7 or E8
+// actually returned at the time. There is no server endpoint listing past decisions, so this is a
+// local convenience record, not a database export, and it does not reflect decisions made from any
+// other browser or device.
+export function DecisionsPage() {
+  const [entries, setEntries] = useState(() => getDecisions());
+
+  const confirmedCount = entries.filter((e) => e.status === "CONFIRMED").length;
+  const rejectedCount = entries.filter((e) => e.status === "REJECTED").length;
+
+  return (
+    <>
+      <PageTitle>Decisions</PageTitle>
+      <p className="mb-5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+        A record of review decisions made from this browser. It is stored locally, not on the server, so it will not show decisions made elsewhere, and clearing it does not undo anything.
+      </p>
+
+      <div className="grid gap-5 sm:grid-cols-3">
+        <StatCard label="Decisions logged" value={entries.length} tone="neutral" />
+        <StatCard label="Same borrower / Accepted" value={confirmedCount} tone="brand" />
+        <StatCard label="Not the same / Separated" value={rejectedCount} tone="flagged" />
+      </div>
+
+      <Card compact className="mt-5">
+        <div className="flex items-center justify-between">
+          <CardLabel>Decision log</CardLabel>
+          {entries.length > 0 && (
+            <button
+              type="button"
+              className="text-xs font-medium hover:underline"
+              style={{ color: "var(--color-text-secondary)" }}
+              onClick={() => {
+                clearDecisions();
+                setEntries([]);
+              }}
+            >
+              Clear log
+            </button>
+          )}
+        </div>
+        {entries.length === 0 ? (
+          <EmptyState>No decisions recorded in this browser yet.</EmptyState>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr style={{ color: "var(--color-text-secondary)" }}>
+                  <th className="py-1.5 pr-4 font-medium">When</th>
+                  <th className="py-1.5 pr-4 font-medium">Case</th>
+                  <th className="py-1.5 pr-4 font-medium">From</th>
+                  <th className="py-1.5 pr-2 font-medium">Decision</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e, i) => {
+                  const confirmed = e.status === "CONFIRMED";
+                  return (
+                    <tr key={`${e.holdingIdA}-${e.holdingIdB}-${e.at}-${i}`} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <td className="py-2 pr-4 whitespace-nowrap" style={{ color: "var(--color-text-secondary)" }}>{new Date(e.at).toLocaleString()}</td>
+                      <td className="py-2 pr-4 font-medium" style={{ color: "var(--color-text)" }}>{e.title ?? "Name not disclosed"}</td>
+                      <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{e.context === "cluster" ? "Group issue" : "Possible match"}</td>
+                      <td className="py-2 pr-2">
+                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold" style={{ color: confirmed ? "var(--color-chart-green)" : "var(--color-chart-red)" }}>
+                          <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: confirmed ? "var(--color-chart-green)" : "var(--color-chart-red)" }} />
+                          {confirmed ? "Confirmed" : "Rejected"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </>
   );
 }
