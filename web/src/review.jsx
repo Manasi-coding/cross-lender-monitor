@@ -266,7 +266,9 @@ function PairCard({ p, measured, busy, fading, index, total, onAct }) {
 }
 
 function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
-  const [open, setOpen] = useState(false);
+  // Open by default: this is the one case on screen to act on, so its decision controls (the
+  // per-pair reject buttons below) should not require an extra click to find.
+  const [open, setOpen] = useState(true);
   const title = c.holdings[0]?.rawName ?? "Name not disclosed";
   const lender = c.holdings[0]?.bdcName ?? "Not disclosed";
   return (
@@ -288,7 +290,7 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
           <p style={{ color: "var(--color-text)" }}>{c.holdings.length} {c.holdings.length === 1 ? "record" : "records"}</p>
         </div>
         <button type="button" className="text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }} onClick={() => setOpen((o) => !o)}>
-          {open ? "Hide details" : "View details"} &rarr;
+          {open ? "Hide records" : "View records and decide"} &rarr;
         </button>
       </div>
 
