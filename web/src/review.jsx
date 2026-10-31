@@ -3,7 +3,7 @@ import { ApiFailure, getJson, postJson } from "./api.js";
 import { useShared } from "./App.jsx";
 import { Card, CardLabel, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, Toast, useFetch } from "./components.jsx";
 import { clearDecisions, getDecisions, recordDecision } from "./decisions.js";
-import { bps, fixed, typeName } from "./format.js";
+import { bps, typeName } from "./format.js";
 // 4.6 Review queue. The score is shown here (it is hidden only on the labeling page), and only
 // inside each case's "Technical details" toggle on this page's default plain-language view.
 const key = (i) => (i.type === "pair" ? `p${i.holdingIdA}-${i.holdingIdB}` : `c${i.clusterId}`);
@@ -18,9 +18,10 @@ export function ReviewPage() {
   const [fading, setFading] = useState(new Set());
   const [toast, setToast] = useState(null);
   const [current, setCurrent] = useState(0);
-  // A running count of decisions made this browser session (resets on reload); the API has no
-  // "completed" concept of its own, since a decided pair simply drops out of the REVIEW queue.
-  const [completed, setCompleted] = useState(0);
+  // A running count of decisions made from this browser, read from the local decisions log so it
+  // survives a reload (the API has no "completed" concept of its own: a decided pair simply drops
+  // out of the REVIEW queue, it is not counted anywhere server side).
+  const [completed, setCompleted] = useState(() => getDecisions().length);
   // The queue size the first time it was fetched this session, so "To review" stays fixed while
   // "Remaining" (the live fetch) counts down as decisions are made.
   const [initialTotal, setInitialTotal] = useState(null);
@@ -279,6 +280,12 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   // Open by default: this is the one case on screen to act on, so its decision controls (the
   // per-pair reject buttons below) should not require an extra click to find.
   const [open, setOpen] = useState(true);
+  // "Same" has no server action to call: a pair already sits in this cluster (AUTO or CONFIRMED),
+  // so leaving it alone already means "same". This only fades the row from view locally, it is not
+  // a decision E7/E8 would record, and is never written to the local decisions log.
+  const [dismissedPairs, setDismissedPairs] = useState(() => new Set());
+  const onDismiss = (a, b) => setDismissedPairs((prev) => new Set(prev).add(`${a}-${b}`));
+  const byHoldingId = new Map(c.holdings.map((h) => [h.holdingId, h]));
   const title = c.holdings[0]?.rawName ?? "Name not disclosed";
   const lender = c.holdings[0]?.bdcName ?? "Not disclosed";
   return (
@@ -330,14 +337,36 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
           </div>
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Technical details: pairs that formed this group</p>
-            <ul className="mt-1 space-y-1.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-              {c.pairs.map((p) => (
-                <li key={`${p.holdingIdA}-${p.holdingIdB}`} className={`flex flex-wrap items-center justify-between gap-2 ${fading.has(`pair-${p.holdingIdA}-${p.holdingIdB}`) ? "fade-out-card" : ""}`}>
-                  <span>Holdings {p.holdingIdA} and {p.holdingIdB}, score {fixed(p.score, 2)}, {p.status}</span>
-                  <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(p.holdingIdA, p.holdingIdB)}>Separate this pair</button>
-                </li>
-              ))}
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Are these the same record?</p>
+            <p className="mt-0.5 text-xs" style={{ color: "var(--color-text-secondary)" }}>
+              These pairs are already grouped together. Leave as is if they belong together, or mark a pair as not the same to split it out.
+            </p>
+            <ul className="mt-2 space-y-2">
+              {c.pairs.map((p) => {
+                const nameA = byHoldingId.get(p.holdingIdA)?.rawName ?? "Name not disclosed";
+                const nameB = byHoldingId.get(p.holdingIdB)?.rawName ?? "Name not disclosed";
+                const dismissed = dismissedPairs.has(`${p.holdingIdA}-${p.holdingIdB}`);
+                return (
+                  <li
+                    key={`${p.holdingIdA}-${p.holdingIdB}`}
+                    className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-2.5 text-sm ${fading.has(`pair-${p.holdingIdA}-${p.holdingIdB}`) || dismissed ? "fade-out-card" : ""}`}
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    <span style={{ color: "var(--color-text)" }}>{nameA} <span style={{ color: "var(--color-text-muted)" }}>and</span> {nameB}</span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="btn-secondary disabled:opacity-50"
+                        onClick={() => onDismiss(p.holdingIdA, p.holdingIdB)}
+                      >
+                        Same
+                      </button>
+                      <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(p.holdingIdA, p.holdingIdB)}>Not the same</button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>
