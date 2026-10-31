@@ -3,7 +3,6 @@ import { Link, useParams, useSearchParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
 import {
-  BarList,
   Card,
   CardLabel,
   ClickableDivergenceBar,
@@ -417,12 +416,12 @@ export function FilingsPage() {
           const shown = rows.filter((r) => (!lender || r.bdcName === lender) && (!quarter || r.periodEnd === quarter) && (!formType || r.formType === formType));
           const sel = selected ?? shown[0] ?? null;
 
-          const lenderColors = ["var(--color-chart-green)", "var(--color-chart-green-dark)", "#15803d", "#4ade80"];
-          const byLender = lenders.map((name, i) => ({ label: name.split(" ")[0], value: rows.filter((r) => r.bdcName === name).length, color: lenderColors[i % lenderColors.length] }));
-          const byQuarter = quarters
-            .slice()
-            .reverse()
-            .map((q) => ({ label: quarterLabel(q), value: rows.filter((r) => r.periodEnd === q).length, color: "var(--color-chart-green)" }));
+          // Coverage matrix: a cell is present only if that exact lender/quarter pair exists in the
+          // real E10 list. There is no "issue" state in the data, only present or absent, so a
+          // missing cell reads as not yet filed (amber), never a fabricated red "problem".
+          const quartersAsc = quarters.slice().reverse();
+          const hasFiling = (name, q) => rows.some((r) => r.bdcName === name && r.periodEnd === q);
+          const latest = rows.slice().sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : a.periodEnd > b.periodEnd ? -1 : a.bdcName.localeCompare(b.bdcName))).slice(0, 5);
 
           return (
             <div className="space-y-5">
@@ -446,7 +445,7 @@ export function FilingsPage() {
                 </select>
               </div>
 
-              <Card compact>
+              <Card compact id="filings-table">
                 <CardLabel>Filings</CardLabel>
                 {shown.length === 0 ? (
                   <EmptyState>No filings match this filter.</EmptyState>
@@ -481,17 +480,79 @@ export function FilingsPage() {
                 )}
               </Card>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Card compact>
-                  <CardLabel>Filings by lender</CardLabel>
-                  <BarList compact rows={byLender} />
-                </Card>
-                <Card compact>
-                  <CardLabel>Filings by quarter</CardLabel>
-                  <BarList compact rows={byQuarter} />
-                  <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>Number of processed filings</p>
-                </Card>
-              </div>
+              <Card compact>
+                <CardLabel>Filings coverage</CardLabel>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr style={{ color: "var(--color-text-secondary)" }}>
+                        <th className="py-1.5 pr-4 font-medium">Lender</th>
+                        {quartersAsc.map((q) => (
+                          <th key={q} className="px-3 py-1.5 text-center font-medium">{quarterLabel(q)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lenders.map((name) => (
+                        <tr key={name} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                          <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{name}</td>
+                          {quartersAsc.map((q) => (
+                            <td key={q} className="px-3 py-2 text-center">
+                              {hasFiling(name, q) ? (
+                                <span style={{ color: "var(--color-chart-green)" }} aria-label="Filed and processed" title="Filed and processed">&#10003;</span>
+                              ) : (
+                                <span style={{ color: "var(--color-review)" }} aria-label="Not yet filed" title="Not yet filed">&#9675;</span>
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                        <td className="py-2 pr-4 text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>Complete</td>
+                        {quartersAsc.map((q) => {
+                          const n = lenders.filter((name) => hasFiling(name, q)).length;
+                          return (
+                            <td key={q} className="px-3 py-2 text-center text-xs" style={{ color: n === lenders.length ? "var(--color-chart-green)" : "var(--color-review)" }}>
+                              {n} / {lenders.length}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </Card>
+
+              <Card compact>
+                <CardLabel>Latest filings</CardLabel>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr style={{ color: "var(--color-text-secondary)" }}>
+                        <th className="py-1.5 pr-4 font-medium">Date</th>
+                        <th className="py-1.5 pr-4 font-medium">Lender</th>
+                        <th className="py-1.5 pr-4 font-medium">Type</th>
+                        <th className="py-1.5 pr-2 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {latest.map((r) => (
+                        <tr key={r.sourceUrl} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                          <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.periodEnd}</td>
+                          <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.bdcName}</td>
+                          <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{r.formType}</td>
+                          <td className="py-2 pr-2"><StatusDot flag="AGREEMENT" label="Processed" /> <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Processed</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="mt-3 text-right">
+                  <a href="#filings-table" className="text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>View all filings &rarr;</a>
+                </div>
+              </Card>
 
               {sel && (
                 <Card compact>

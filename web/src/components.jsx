@@ -100,24 +100,24 @@ export const FLAG_STATUS = {
 
 // `to` renders a Link (navigates), `onClick` renders a button (acts in place, e.g. applying a
 // filter). A card never gets both. `compact` tightens padding for dense, single-screen layouts.
-export function Card({ children, to, onClick, compact = false, className = "" }) {
+export function Card({ children, to, onClick, compact = false, className = "", id }) {
   const base = `card-shadow rounded-[var(--radius-card)] border ${compact ? "p-3.5" : "p-5"} ${className}`;
   const style = { background: "var(--color-surface)", borderColor: "var(--color-border-strong)" };
   if (to) {
     return (
-      <Link to={to} className={`block transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
+      <Link id={id} to={to} className={`block transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
         {children}
       </Link>
     );
   }
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
+      <button id={id} type="button" onClick={onClick} className={`block w-full text-left transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
         {children}
       </button>
     );
   }
-  return <div className={base} style={style}>{children}</div>;
+  return <div id={id} className={base} style={style}>{children}</div>;
 }
 
 // A small all-caps section label, used as the header of a card in place of a generic heading.
