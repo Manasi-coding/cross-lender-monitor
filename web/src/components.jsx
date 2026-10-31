@@ -23,21 +23,29 @@ export function useFetch(load, deps) {
 }
 
 export function Skeleton() {
-  return <div className="animate-pulse space-y-3" aria-busy="true" aria-label="Loading">{[0, 1, 2].map((i) => <div key={i} className="h-16 rounded bg-gray-200 dark:bg-gray-700" />)}</div>;
+  return (
+    <div className="animate-pulse space-y-3" aria-busy="true" aria-label="Loading">
+      {[0, 1, 2].map((i) => <div key={i} className="h-16 rounded-2xl bg-[var(--color-border)]" />)}
+    </div>
+  );
 }
 
 export function ErrorState({ error, retry }) {
   return (
-    <div role="alert" className="rounded border border-red-600 p-4">
-      <p className="font-semibold">Something went wrong.</p>
-      <p className="break-words">{error.message}</p>
-      <button className="mt-2 rounded border px-3 py-1" onClick={retry}>Retry</button>
+    <div role="alert" className="rounded-2xl border p-5" style={{ borderColor: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
+      <p className="font-semibold" style={{ color: "var(--color-text)" }}>Something went wrong.</p>
+      <p className="break-words text-sm" style={{ color: "var(--color-text-secondary)" }}>{error.message}</p>
+      <button className="btn-secondary mt-3" onClick={retry}>Retry</button>
     </div>
   );
 }
 
 export function EmptyState({ children }) {
-  return <p className="rounded border border-dashed p-4">{children}</p>;
+  return (
+    <p className="rounded-2xl border border-dashed p-6 text-center text-sm" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+      {children}
+    </p>
+  );
 }
 
 // Renders the four page states for one fetch.
@@ -48,34 +56,73 @@ export function Load({ f, children }) {
 }
 
 // ------------------------------------------------------------------ cards and labels
+
+// Status colour tokens shared by every pill, bar and chip in the app. Keyed by the Flag enum.
+const FLAG_STATUS = {
+  AGREEMENT: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", dot: "var(--color-brand)" },
+  MILD: { fg: "var(--color-review)", bg: "var(--color-review-light)", dot: "var(--color-review)" },
+  FLAGGED: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", dot: "var(--color-flagged)" },
+};
+
 export function Card({ children, to, className = "" }) {
-  const body = <div className={`rounded border border-gray-400 p-4 ${className}`}>{children}</div>;
-  return to ? <Link to={to} className="block hover:bg-gray-100 dark:hover:bg-gray-800">{body}</Link> : body;
+  const base = `card-shadow rounded-[var(--radius-card)] border p-5 ${className}`;
+  const style = { background: "var(--color-surface)", borderColor: "var(--color-border)" };
+  if (!to) return <div className={base} style={style}>{children}</div>;
+  return (
+    <Link to={to} className={`block transition-colors hover:bg-[var(--color-brand-light)]/40 ${base}`} style={style}>
+      {children}
+    </Link>
+  );
+}
+
+// A small all-caps section label, used as the header of a card in place of a generic heading.
+export function CardLabel({ children }) {
+  return <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{children}</p>;
 }
 
 export function StatCard({ label, value, to, note }) {
   return (
     <Card to={to}>
-      <p className="text-sm">{label}</p>
-      <p className="text-2xl font-bold">{value}</p>
-      {note && <p className="text-sm">{note}</p>}
+      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{label}</p>
+      <p className="mt-2 text-[28px] font-bold leading-none" style={{ color: "var(--color-text)" }}>{value}</p>
+      {note && <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{note}</p>}
     </Card>
   );
 }
 
 export function PeriodTag({ periodEnd, measured }) {
-  return measured && periodEnd !== measured ? <span className="ml-2 rounded border px-2 text-xs">Outside measured quarter</span> : null;
+  return measured && periodEnd !== measured ? (
+    <span className="ml-2 rounded-full border px-2 py-0.5 text-xs" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+      Outside measured quarter
+    </span>
+  ) : null;
 }
 
 export function SourceLink({ url, children = "View filing" }) {
-  return <a className="underline" href={url} target="_blank" rel="noreferrer">{children}</a>;
+  return (
+    <a className="font-medium underline-offset-2 hover:underline" style={{ color: "var(--color-brand-dark)" }} href={url} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  );
+}
+
+// A status pill: a dot plus text, tinted with the flag's colour. Used for divergence flags everywhere.
+export function StatusPill({ flag }) {
+  const s = FLAG_STATUS[flag] ?? { fg: "var(--color-text-secondary)", bg: "var(--color-border)", dot: "var(--color-text-secondary)" };
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold" style={{ color: s.fg, background: s.bg }}>
+      <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: s.dot }} />
+      {FLAG_TEXT[flag] ?? flag}
+    </span>
+  );
 }
 
 export function Banner({ flag, points }) {
+  const s = FLAG_STATUS[flag] ?? { fg: "var(--color-text)", bg: "var(--color-border)" };
   return (
-    <div className="rounded border-2 border-gray-700 p-4" role="status">
-      <p className="text-xl font-bold">{FLAG_TEXT[flag] ?? flag}</p>
-      <p>{fixed(points, 2)} points of fair value, highest minus lowest lender</p>
+    <div className="rounded-[var(--radius-card)] border p-5" style={{ borderColor: "var(--color-border)", background: s.bg }} role="status">
+      <p className="text-xl font-bold" style={{ color: s.fg }}>{FLAG_TEXT[flag] ?? flag}</p>
+      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{fixed(points, 2)} points of fair value, highest minus lowest lender</p>
     </div>
   );
 }
@@ -83,18 +130,74 @@ export function Banner({ flag, points }) {
 export function ExposureTag({ exposureUsd }) {
   return (
     <span>
-      Exposure {usd(exposureUsd)}
-      <span className="block text-xs">Ranking key, not an estimate of loss.</span>
+      <span style={{ color: "var(--color-text)" }}>Exposure {usd(exposureUsd)}</span>
+      <span className="block text-xs" style={{ color: "var(--color-text-muted)" }}>Ranking key, not an estimate of loss.</span>
     </span>
   );
 }
 
 export function SignalChip({ code }) {
-  return <span className="mr-1 inline-block rounded border px-2 text-sm">{SIGNAL_TEXT[code] ?? code}</span>;
+  return (
+    <span className="mr-1 inline-block rounded-full border px-2.5 py-0.5 text-xs font-medium" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+      {SIGNAL_TEXT[code] ?? code}
+    </span>
+  );
 }
 
 export function PersistenceTag({ persistence }) {
-  return <span className="rounded border px-2 text-sm">{persistence === null ? NOT_YET : PERSISTENCE_TEXT[persistence]}</span>;
+  return (
+    <span className="rounded-full border px-2.5 py-0.5 text-xs font-medium" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
+      {persistence === null ? NOT_YET : PERSISTENCE_TEXT[persistence]}
+    </span>
+  );
+}
+
+// ------------------------------------------------------------------ chart primitives (real data only)
+
+// Horizontal bars for the three divergence flags, counts supplied by the caller (overview.divergenceSplit).
+export function DivergenceSplitChart({ agreement, mild, flagged }) {
+  const rows = [
+    ["AGREEMENT", agreement],
+    ["MILD", mild],
+    ["FLAGGED", flagged],
+  ];
+  const max = Math.max(1, agreement, mild, flagged);
+  return (
+    <div className="space-y-3">
+      {rows.map(([flag, n]) => {
+        const s = FLAG_STATUS[flag];
+        return (
+          <div key={flag} className="flex items-center gap-3">
+            <span className="w-20 shrink-0 text-xs font-medium" style={{ color: "var(--color-text-secondary)" }}>{FLAG_TEXT[flag]}</span>
+            <div className="h-2.5 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+              <div className="h-full rounded-full" style={{ width: `${(n / max) * 100}%`, background: s.dot }} />
+            </div>
+            <span className="w-8 shrink-0 text-right text-sm font-semibold" style={{ color: "var(--color-text)" }}>{n}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// A ranked horizontal-bar list of named rows against a shared total, e.g. flagged exposure by borrower.
+export function RankedShareList({ rows, total }) {
+  const max = Math.max(1, ...rows.map((r) => r.value));
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.label} className="flex items-center gap-3">
+          <span className="w-28 shrink-0 truncate text-sm font-medium" style={{ color: "var(--color-text)" }}>{r.label}</span>
+          <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+            <div className="h-full rounded-full" style={{ width: `${(r.value / max) * 100}%`, background: "var(--color-flagged)" }} />
+          </div>
+          <span className="w-10 shrink-0 text-right text-xs font-semibold" style={{ color: "var(--color-text-secondary)" }}>
+            {total ? `${((r.value / total) * 100).toFixed(0)}%` : r.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ------------------------------------------------------------------ metric values
@@ -250,9 +353,13 @@ export function EvidenceTable({ rows }) {
 
 export function PageTitle({ children, sub }) {
   return (
-    <div className="mb-4">
-      <h1 className="text-2xl font-bold">{children}</h1>
-      {sub && <p>{sub}</p>}
+    <div className="mb-6">
+      <h1 className="text-[28px] font-bold leading-tight" style={{ color: "var(--color-text)" }}>{children}</h1>
+      {sub && <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{sub}</p>}
     </div>
   );
 }
+
+// Small shared control styles, reused by every page's search/filter inputs and buttons.
+export const inputClass = "w-full rounded-xl border px-3.5 py-2 text-sm outline-none transition-colors placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-brand)]";
+export const inputStyle = { background: "var(--color-surface)", borderColor: "var(--color-border)", color: "var(--color-text)" };

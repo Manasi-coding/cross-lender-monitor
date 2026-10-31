@@ -3,18 +3,85 @@
 /* Dark mode follows the toggle in the shell (data-theme on the html element). */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-bg: #f5f7f5;
+  --color-surface: #ffffff;
+  --color-border: #e4e8e5;
+
+  --color-text: #172033;
+  --color-text-secondary: #667085;
+  --color-text-muted: #98a2b3;
+
+  --color-brand: #5e8f68;
+  --color-brand-light: #eaf3ec;
+  --color-brand-dark: #416b4a;
+
+  --color-flagged: #c85c5c;
+  --color-flagged-light: #fbecec;
+  --color-review: #c9953c;
+  --color-review-light: #fbf3e2;
+
+  --radius-card: 14px;
+}
+
 html {
-  background: #ffffff;
-  color: #111827;
+  font-family: var(--font-sans);
+  background: var(--color-bg);
+  color: var(--color-text);
 }
 html[data-theme="dark"] {
-  background: #111827;
-  color: #f3f4f6;
+  --color-bg: #11161c;
+  --color-surface: #182029;
+  --color-border: #2a333d;
+  --color-text: #eef1f4;
+  --color-text-secondary: #9aa6b4;
+  --color-text-muted: #6d7889;
+  --color-brand-light: #1c2a21;
+  --color-flagged-light: #2a1c1c;
+  --color-review-light: #2b2419;
   color-scheme: dark;
 }
+html[data-theme="dark"] {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+body {
+  margin: 0;
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible {
-  outline: 2px solid currentColor;
+  outline: 2px solid var(--color-brand);
   outline-offset: 2px;
+}
+
+.card-shadow {
+  box-shadow: 0 1px 2px rgba(23, 32, 51, 0.04);
+}
+
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+.btn-secondary:hover {
+  background: var(--color-brand-light);
+  border-color: var(--color-brand);
+}
+.btn-secondary[aria-pressed="true"] {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
 }

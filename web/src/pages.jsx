@@ -2,8 +2,23 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { Card, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, useFetch } from "./components.jsx";
-import { NOT_YET, typeName, usd } from "./format.js";
+import {
+  Card,
+  CardLabel,
+  DivergenceSplitChart,
+  EmptyState,
+  inputClass,
+  inputStyle,
+  Load,
+  PageTitle,
+  PeriodTag,
+  RankedShareList,
+  SourceLink,
+  StatCard,
+  StatusPill,
+  useFetch,
+} from "./components.jsx";
+import { NOT_YET, points, typeName, usd } from "./format.js";
 export function useDebounced(value, ms = 300) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -18,41 +33,138 @@ const share = (n, total) => (total === 0 ? NOT_YET : `${((n / total) * 100).toFi
 // ------------------------------------------------------------------ 4.1 Overview
 export function OverviewPage() {
   const { overview: o } = useShared();
+  // Reuses the existing E4 facilities endpoint (flag=FLAGGED, sort=exposure) to drive the "biggest differences"
+  // and "cases worth looking at first" sections below. No new endpoint, no invented figures.
+  const flagged = useFetch(() => getJson("/api/facilities", { flag: "FLAGGED", sort: "exposure" }), []);
+
+  if (!o) {
+    return (
+      <>
+        <PageTitle>Overview</PageTitle>
+        <p style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+      </>
+    );
+  }
+
+  const s = o.divergenceSplit;
+  const total = s ? s.agreement + s.mild + s.flagged : 0;
+  const agreementShare = s && total > 0 ? share(s.agreement, total) : NOT_YET;
+  const flaggedRows = flagged.state === "ready" ? flagged.data : [];
+  const topCases = flaggedRows.slice(0, 5);
+  const topExposureByBorrower = flaggedRows.slice(0, 5).map((r) => ({ label: r.borrowerName, value: Number(r.exposureUsd) }));
+
   return (
     <>
-      <PageTitle sub={o ? `Measured quarter: ${o.measuredPeriodEnd}` : undefined}>Overview</PageTitle>
-      {!o ? (
-        <p>{NOT_YET}</p>
-      ) : (
-        <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <StatCard label="BDCs" value={o.bdcCount} to="/filings" />
-            <StatCard label="Facilities" value={o.facilityCount} to="/facilities" />
-            <StatCard label="Pending reviews" value={o.pendingReviewCount} to="/review" />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Card to="/borrowers"><p className="font-semibold">Browse borrowers</p></Card>
-            <Card to="/review"><p className="font-semibold">Review queue</p></Card>
-          </div>
-          <Card to="/metrics">
-            <p className="font-semibold">Valuation divergence</p>
-            {o.divergenceSplit ? (
-              (() => {
-                const s = o.divergenceSplit;
-                const t = s.agreement + s.mild + s.flagged;
-                return <p>Agreement {s.agreement} ({share(s.agreement, t)}). Mild {s.mild} ({share(s.mild, t)}). Flagged {s.flagged} ({share(s.flagged, t)}).</p>;
-              })()
+      <PageTitle
+        sub={
+          <>
+            {o.measuredPeriodEnd} &nbsp;&middot;&nbsp; {o.bdcCount} {o.bdcCount === 1 ? "lender" : "lenders"} &nbsp;&middot;&nbsp;{" "}
+            {o.facilityCount} {o.facilityCount === 1 ? "facility" : "facilities"}
+          </>
+        }
+      >
+        Overview
+      </PageTitle>
+      <p className="mb-6 text-sm" style={{ color: "var(--color-text-secondary)" }}>What is happening across the monitored lenders</p>
+
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Facilities" value={o.facilityCount} to="/facilities" note={`Across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`} />
+        <StatCard label="Need review" value={o.pendingReviewCount} to="/review" note="Need a closer look" />
+        <StatCard label="Flagged exposure" value={usd(o.flaggedExposureUsd)} to="/facilities" note="Ranking key, not loss" />
+        <StatCard label="Agreement" value={agreementShare} to="/metrics" note="Valuations are close" />
+      </div>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <Card>
+          <CardLabel>Valuation differences</CardLabel>
+          {s ? (
+            <DivergenceSplitChart agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
+          ) : (
+            <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+          )}
+        </Card>
+        <Card>
+          <CardLabel>Where are the biggest differences?</CardLabel>
+          <Load f={flagged}>
+            {() =>
+              topExposureByBorrower.length === 0 ? (
+                <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>No flagged cases right now.</p>
+              ) : (
+                <>
+                  <RankedShareList rows={topExposureByBorrower} total={Number(o.flaggedExposureUsd ?? 0)} />
+                  <Link to="/facilities" className="mt-4 inline-block text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>
+                    More cases &rarr;
+                  </Link>
+                </>
+              )
+            }
+          </Load>
+        </Card>
+      </div>
+
+      <Card className="mt-6">
+        <CardLabel>Cases worth looking at first</CardLabel>
+        <Load f={flagged}>
+          {() =>
+            topCases.length === 0 ? (
+              <EmptyState>No flagged cases right now.</EmptyState>
             ) : (
-              <p>{NOT_YET}</p>
-            )}
-          </Card>
-          <Card to="/facilities">
-            <p className="font-semibold">Flagged exposure</p>
-            <p className="text-xl">{usd(o.flaggedExposureUsd)}</p>
-            <p className="text-sm">Ranking key, not an estimate of loss.</p>
-          </Card>
-        </div>
-      )}
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr style={{ color: "var(--color-text-secondary)" }}>
+                        <th className="py-2 pr-4 font-medium">Borrower</th>
+                        <th className="py-2 pr-4 font-medium">Difference</th>
+                        <th className="py-2 pr-4 font-medium">Exposure</th>
+                        <th className="py-2 pr-4 font-medium">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topCases.map((r) => (
+                        <tr key={r.facilityId} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                          <td className="py-2.5 pr-4">
+                            <Link to={`/facilities/${r.facilityId}`} className="font-medium hover:underline" style={{ color: "var(--color-text)" }}>
+                              {r.borrowerName}
+                            </Link>
+                          </td>
+                          <td className="py-2.5 pr-4" style={{ color: "var(--color-text)" }}>{points(r.divergencePts)} pts</td>
+                          <td className="py-2.5 pr-4" style={{ color: "var(--color-text)" }}>{usd(r.exposureUsd)}</td>
+                          <td className="py-2.5 pr-4"><StatusPill flag={r.divergenceFlag} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <Link to="/facilities" className="mt-4 inline-block text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>
+                  View all flagged cases &rarr;
+                </Link>
+              </>
+            )
+          }
+        </Load>
+      </Card>
+
+      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+        <Card>
+          <CardLabel>Data coverage</CardLabel>
+          <ul className="space-y-1.5 text-sm" style={{ color: "var(--color-text)" }}>
+            <li>{o.bdcCount} {o.bdcCount === 1 ? "lender" : "lenders"}</li>
+            <li>{o.quarterCount} {o.quarterCount === 1 ? "quarter" : "quarters"}</li>
+            <li>{o.facilityCount} facilities</li>
+          </ul>
+          <p className="mt-3 text-xs" style={{ color: "var(--color-text-muted)" }}>Latest: {o.measuredPeriodEnd}</p>
+        </Card>
+        <Card>
+          <CardLabel>What does &ldquo;flagged&rdquo; mean?</CardLabel>
+          <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+            The lenders&rsquo; valuations differ enough to deserve a closer look.
+          </p>
+          <p className="mt-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+            It is a ranking signal, not a prediction of loss.
+          </p>
+        </Card>
+      </div>
     </>
   );
 }
@@ -78,7 +190,8 @@ export function BorrowersPage() {
         placeholder="Search borrower"
         aria-label="Search borrower"
         maxLength={200}
-        className="mb-4 w-full max-w-md rounded border px-3 py-1"
+        className={`mb-5 max-w-md ${inputClass}`}
+        style={inputStyle}
       />
       <Load f={f}>
         {(rows) =>
@@ -88,11 +201,11 @@ export function BorrowersPage() {
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {rows.map((b) => (
                 <Card key={b.canonicalBorrowerId} to={`/borrowers/${b.canonicalBorrowerId}`}>
-                  <p className="font-bold uppercase">{b.canonicalName}</p>
-                  <p>{b.periodEnd}<PeriodTag periodEnd={b.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
-                  <p>{b.lenderCount} {b.lenderCount === 1 ? "Lender" : "Lenders"}</p>
-                  <p>{b.facilityCount} {b.facilityCount === 1 ? "Facility" : "Facilities"}</p>
-                  <p className="underline">View borrower</p>
+                  <p className="font-semibold uppercase" style={{ color: "var(--color-text)" }}>{b.canonicalName}</p>
+                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.periodEnd}<PeriodTag periodEnd={b.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.lenderCount} {b.lenderCount === 1 ? "Lender" : "Lenders"}</p>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{b.facilityCount} {b.facilityCount === 1 ? "Facility" : "Facilities"}</p>
+                  <p className="mt-2 text-sm font-medium" style={{ color: "var(--color-brand-dark)" }}>View borrower &rarr;</p>
                 </Card>
               ))}
             </div>
@@ -111,14 +224,14 @@ export function BorrowerDetailPage() {
   if (f.state === "error" && f.error instanceof ApiFailure && f.error.status === 404) {
     return (
       <>
-        <Link to="/borrowers" className="underline">Borrowers</Link>
+        <Link to="/borrowers" className="text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>&larr; Borrowers</Link>
         <EmptyState>This borrower is not in the current build.</EmptyState>
       </>
     );
   }
   return (
     <>
-      <Link to="/borrowers" className="underline">Back to borrowers</Link>
+      <Link to="/borrowers" className="mb-4 inline-block text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>&larr; Back to borrowers</Link>
       <Load f={f}>
         {(b) => (
           <>
@@ -128,10 +241,10 @@ export function BorrowerDetailPage() {
             <div className="space-y-4">
               {b.facilities.map((x) => (
                 <Card key={x.facilityId} to={`/facilities/${x.facilityId}`}>
-                  <p className="font-semibold">{typeName(x.instrumentType)}</p>
-                  <p>{x.referenceRate ?? "Reference rate not disclosed"}, maturity bucket {x.maturityBucket ?? "Not disclosed"}</p>
-                  <p>{x.lenderCount} lenders</p>
-                  <p className="underline">View comparison</p>
+                  <p className="font-semibold" style={{ color: "var(--color-text)" }}>{typeName(x.instrumentType)}</p>
+                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.referenceRate ?? "Reference rate not disclosed"}, maturity bucket {x.maturityBucket ?? "Not disclosed"}</p>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.lenderCount} lenders</p>
+                  <p className="mt-2 text-sm font-medium" style={{ color: "var(--color-brand-dark)" }}>View comparison &rarr;</p>
                 </Card>
               ))}
             </div>
@@ -149,8 +262,16 @@ export function FilingsPage() {
   const { overview } = useShared();
   return (
     <>
-      <PageTitle>SEC filings</PageTitle>
-      <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter filings" aria-label="Filter filings" maxLength={200} className="mb-4 w-full max-w-md rounded border px-3 py-1" />
+      <PageTitle sub="The source documents behind the monitor">SEC filings</PageTitle>
+      <input
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Filter filings"
+        aria-label="Filter filings"
+        maxLength={200}
+        className={`mb-5 max-w-md ${inputClass}`}
+        style={inputStyle}
+      />
       <Load f={f}>
         {(rows) => {
           const t = filter.trim().toLowerCase();
@@ -161,9 +282,9 @@ export function FilingsPage() {
             <div className="space-y-4">
               {shown.map((r) => (
                 <Card key={r.sourceUrl}>
-                  <p className="font-semibold">{r.bdcName}</p>
-                  <p>{r.formType}, period end {r.periodEnd}<PeriodTag periodEnd={r.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
-                  <p>Holdings: {r.holdingsCount} <SourceLink url={r.sourceUrl}>View SEC filing</SourceLink></p>
+                  <p className="font-semibold" style={{ color: "var(--color-text)" }}>{r.bdcName}</p>
+                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{r.formType}, period end {r.periodEnd}<PeriodTag periodEnd={r.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
+                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>Holdings: {r.holdingsCount} &nbsp; <SourceLink url={r.sourceUrl}>View SEC filing</SourceLink></p>
                 </Card>
               ))}
             </div>

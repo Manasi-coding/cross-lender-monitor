@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { Banner, Card, DotPlot, EmptyState, EvidenceTable, ExposureTag, HistoryStrip, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, useFetch } from "./components.jsx";
+import { Banner, Card, DotPlot, EmptyState, EvidenceTable, ExposureTag, HistoryStrip, inputClass, inputStyle, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, StatusPill, useFetch } from "./components.jsx";
 import { FLAG_TEXT, fixed, points, spreadRange, typeName } from "./format.js";
 import { useDebounced } from "./pages.jsx";
 
@@ -19,16 +19,16 @@ export function TriagePage() {
   const { overview } = useShared();
   return (
     <>
-      <PageTitle>Triage</PageTitle>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View">
+      <PageTitle sub="Start with the cases where reported values differ the most">Triage</PageTitle>
+      <div className="mb-5 flex flex-wrap items-center gap-2">
+        <div role="group" aria-label="View" className="flex gap-2">
           {(["flagged", "all"]).map((v) => (
-            <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className={`border px-3 py-1 ${view === v ? "bg-gray-800 text-white dark:bg-gray-200 dark:text-black" : ""}`}>
+            <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className="btn-secondary">
               {v === "flagged" ? "Flagged" : "All"}
             </button>
           ))}
         </div>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search borrower" aria-label="Search borrower" maxLength={200} className="w-full max-w-md rounded border px-3 py-1" />
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search borrower" aria-label="Search borrower" maxLength={200} className={`max-w-md ${inputClass}`} style={inputStyle} />
       </div>
       <Load f={f}>
         {(rows) =>
@@ -40,19 +40,20 @@ export function TriagePage() {
                 <Card key={x.facilityId} to={`/facilities/${x.facilityId}`}>
                   <div className="flex flex-wrap justify-between gap-2">
                     <div>
-                      <p className="font-bold uppercase">{x.borrowerName}<PeriodTag periodEnd={x.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
-                      <p>{typeName(x.instrumentType)}</p>
-                      <p>{x.referenceRate ?? "Reference rate not disclosed"}, spread {spreadRange(x.spreadBps.min, x.spreadBps.max)}</p>
-                      <p>{x.lenderCount} lenders</p>
+                      <p className="font-semibold uppercase" style={{ color: "var(--color-text)" }}>{x.borrowerName}<PeriodTag periodEnd={x.periodEnd} measured={overview?.measuredPeriodEnd} /></p>
+                      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{typeName(x.instrumentType)}</p>
+                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.referenceRate ?? "Reference rate not disclosed"}, spread {spreadRange(x.spreadBps.min, x.spreadBps.max)}</p>
+                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.lenderCount} lenders</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold">{FLAG_TEXT[x.divergenceFlag]}, {points(x.divergencePts)} points</p>
-                      <p><ExposureTag exposureUsd={x.exposureUsd} /></p>
-                      <p>{x.signalCount} {x.signalCount === 1 ? "signal" : "signals"}</p>
-                      <p><PersistenceTag persistence={x.persistence} /></p>
+                      <p><StatusPill flag={x.divergenceFlag} /></p>
+                      <p className="mt-1 text-sm font-medium" style={{ color: "var(--color-text)" }}>{points(x.divergencePts)} points</p>
+                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}><ExposureTag exposureUsd={x.exposureUsd} /></p>
+                      <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{x.signalCount} {x.signalCount === 1 ? "signal" : "signals"}</p>
+                      <p className="mt-1"><PersistenceTag persistence={x.persistence} /></p>
                     </div>
                   </div>
-                  <p className="mt-2 underline">View comparison</p>
+                  <p className="mt-3 text-sm font-medium" style={{ color: "var(--color-brand-dark)" }}>View comparison &rarr;</p>
                 </Card>
               ))}
             </div>

@@ -74,10 +74,10 @@ function PairCard({ p, measured, busy, onAct, onSkip }) {
       <p>Score {fixed(p.score, 2)}. {typeName(p.instrumentType)}.</p>
       <p>Maturity {p.maturityDateA ?? "Not disclosed"} and {p.maturityDateB ?? "Not disclosed"}. Spread {bps(p.spreadBpsA, "Not disclosed")} and {bps(p.spreadBpsB, "Not disclosed")}.</p>
       <p><SourceLink url={p.sourceUrlA}>Source A</SourceLink> <SourceLink url={p.sourceUrlB}>Source B</SourceLink></p>
-      <div className="mt-2 flex gap-2">
-        <button disabled={busy} className="rounded border px-3 py-1" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "confirm")}>Confirm</button>
-        <button disabled={busy} className="rounded border px-3 py-1" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "reject")}>Reject</button>
-        <button disabled={busy} className="rounded border px-3 py-1" onClick={onSkip}>Skip</button>
+      <div className="mt-3 flex gap-2">
+        <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "confirm")}>Confirm</button>
+        <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "reject")}>Reject</button>
+        <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={onSkip}>Skip</button>
       </div>
     </Card>
   );
@@ -98,7 +98,7 @@ function ClusterCard({ c, measured, busy, onReject }) {
         {c.pairs.map((p) => (
           <li key={`${p.holdingIdA}-${p.holdingIdB}`} className="flex flex-wrap items-center gap-2">
             Holdings {p.holdingIdA} and {p.holdingIdB}, score {fixed(p.score, 2)}, {p.status}
-            <button disabled={busy} className="rounded border px-3 py-1" onClick={() => onReject(p.holdingIdA, p.holdingIdB)}>Reject</button>
+            <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(p.holdingIdA, p.holdingIdB)}>Reject</button>
           </li>
         ))}
       </ul>
