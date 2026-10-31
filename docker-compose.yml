@@ -5,7 +5,7 @@ services:
     image: postgres:16.15
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: cross_lender
     ports:
       - "127.0.0.1:5432:5432"   # local development and pytest only
@@ -24,7 +24,7 @@ services:
       dockerfile: pipeline/Dockerfile
     command: ["python", "-m", "pipeline.migrate"]
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/cross_lender
     depends_on:
       db:
         condition: service_healthy
@@ -34,8 +34,8 @@ services:
       context: ./api
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
-      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/cross_lender
+      NODE_ENV: ${NODE_ENV:-production}
       ENABLE_LABELING: ${ENABLE_LABELING:-false}
     ports:
       - "3000:3000"
@@ -74,7 +74,7 @@ services:
       dockerfile: pipeline/Dockerfile
     env_file: .env
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/cross_lender
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/cross_lender
     volumes:
       - ./fixtures:/app/fixtures
       - ./docs:/app/docs          # block.py and match.py append to docs/run_times.jsonl

@@ -1,5 +1,7 @@
 # Demo script
 
+Demo recording is out of scope for now, because deployment is the next stage. This file is kept as the script to use when a recording is made, and its numbers were checked against the live stack on 2026-10-31.
+
 About 6 minutes. Record the browser at http://localhost:8080 after `docker compose up`. Say only what the screen shows. Do not claim anything the README does not.
 
 ## Before recording
@@ -16,10 +18,10 @@ About 6 minutes. Record the browser at http://localhost:8080 after `docker compo
 6. Review queue (/review). Explain what a cluster card is. Do not click Confirm or Reject while recording unless you mean to change the data. The 19 cluster cards come first; scroll past them to the 5 pair cards. Click Skip on a pair card to show it hides locally.
 7. Metrics (/metrics). Start with the headline: AUTO only precision shown three ways with its interval. Say how UNSURE is counted. Show the REVIEW band as "1 of 5" counts. Show that the out of time check is a separate section. Show the evidence signals, the unexplained share (8 of 12), field coverage and the divergence sensitivity.
 8. Filings (/filings). Show the SEC filing links. The three 2026-03-31 filings carry the tag "Outside measured quarter".
-9. In the README, show the Evaluation section, the sensitivity note and the limits (282 of 283 AUTO pairs have equal normalized names; blocking recall is not yet measured). Open DECISIONS.md section 24 and read the provenance lines as they are written.
+9. In the README, show the Evaluation section, the sensitivity note and the limits (282 of 283 AUTO pairs have equal normalized names; blocking recall is 6 of 8 on only 8 pairs, checked by an AI assistant, so say it is weak evidence). Open DECISIONS.md section 24 and read the provenance lines as they are written.
 
 ## Things not to say
 - That anything explains a gap, or that the project reproduces Apollo's valuation.
 - A precision that includes review queue confirmations.
 - That ERC is confirmed as the same tranche, or that its exposure is reliable.
-- That blocking recall was measured, until you have finished the hand check and run `--finalize`.
+- That blocking recall is strong evidence (n is 8), or that the blocking recall and history link checks were done by hand: they were done by an AI assistant.
