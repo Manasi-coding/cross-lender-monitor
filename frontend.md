@@ -2,7 +2,8 @@ frontend.md: Pages, layouts and API usage
 Project: Cross-Lender Private Credit Valuation Monitor. React 19 + Tailwind + React Router (versions pinned on Day 1). Scope and evaluation come from SPEC.md, endpoint shapes from CONTRACT.md. The backend and AI plan is phase_wise.md, and section 2 below is identical in both files.
 1. Design rules
 Everything is a card. A borrower card opens the borrower. A facility card opens the comparison. A metric card opens its detail. A filing card opens the SEC source.
-Left sidebar for navigation (6 tabs). The top bar holds search and a theme toggle only. No settings, no profile, no auth.
+Left sidebar for navigation. The top bar holds search and a theme toggle only. No settings, no profile, no auth.
+(v3) The sidebar now has 7 tabs: Overview, Borrowers, Triage (route `/facilities`), Review, Decisions, Metrics, Filings. Decisions is a new, session-only page (`web/src/decisions.js`, `/decisions`): a local, in-memory log of this browser's own review decisions since the last reload. It is not a database table, starts empty on every reload, and there is no server endpoint that lists past decisions.
 Any number taken from a filing links to its SEC source in one click. Aggregates, counts and metrics have no filing source, so they carry no link.
 UI text uses plain sentences and simple bullets. Avoid dashes in UI strings, and write ranges as "to".
 Null rule: any null from the API renders "Not yet measured". Never show a zero or a placeholder number in place of a null.
@@ -65,16 +66,14 @@ Writes: E7 and E8 update candidate_pairs.status. E12 writes labeled_pairs and is
 │ │ Borrowers  │                                             │
 │ │ Triage     │                                             │
 │ │ Review (n) │   (n = pendingReviewCount from E1)          │
+│ │ Decisions  │                                             │
 │ │ Metrics    │                                             │
 │ │ Filings    │                                             │
-│ │ ────────── │                                             │
-│ │ 3 BDCs     │   (bdcCount from E1)                        │
-│ │ 1 Quarter  │   (quarterCount from E1)                    │
 │ └────────────┘                                             │
 └────────────────────────────────────────────────────────────┘
 
-The shell loads E1 once and shares it through context: sidebar footer counts, the Review badge, and measuredPeriodEnd for the "Outside measured quarter" tag. Pages re-fetch E1 after a review action.
-Top bar search goes to /borrowers?search=<q> (E2). The placeholder says "Search borrowers" because it searches borrowers only. Triage (the Facilities page) has its own search box. The nav label is Triage; the route stays /facilities and the sidebar stays at 6 tabs.
+The shell loads E1 once and shares it through context: the Review badge and measuredPeriodEnd for the "Outside measured quarter" tag. (v3) The sidebar no longer has a "3 BDCs / 1 Quarter" footer; those counts moved to the Overview page's Data coverage card, and a Decisions tab was added. Pages re-fetch E1 after a review action.
+Top bar search goes to /borrowers?search=<q> (E2) from every page, not just Borrowers: the placeholder reads "Search borrowers, facilities or lenders". The nav label is Triage; the route stays /facilities and Triage has no search box of its own.
 One fetch wrapper in src/api/client.ts. Types in src/api/types.ts mirror CONTRACT.md (hand written, one file). The wrapper parses the error shape and exposes code and message.
 Every page uses the same four states: loading skeleton, error with retry, empty, data.
 4. Pages
@@ -104,6 +103,7 @@ Card links: BDCs opens /filings, Facilities opens /facilities, Pending Reviews o
 (v2) One optional extra card shows flaggedExposureUsd from E1 as "Flagged exposure" with the words "Ranking key, not an estimate of loss." A null reads "Not yet measured". It is the first thing cut.
 Percentages are computed in the client from the E1 counts. If divergenceSplit is null, the divergence card reads "Not yet measured".
 Done when: all counts match the database, the card links work, and the null case renders.
+(v3) The built page replaces the two link tiles with 4 stat cards (Facilities, Need review, Flagged exposure, Agreement), each counting up to its value on load. The Valuation Divergence card is now a donut plus a clickable stacked bar (each segment a real link to Facilities, pre-filtered to that flag) alongside a "Biggest differences" ranked list, and a "Data coverage" card (lender, quarter and facility counts, and the measured period end) replaced the old sidebar footer. The three stat cards shown above are the ones that survived; "Flagged exposure" is not cut.
 4.2 Borrowers /borrowers (E2)
 ┌─────────────────────────────────────────────────────────────┐
 │ Borrowers                        [ Search borrower... ]     │
@@ -120,6 +120,7 @@ The search box calls E2 with search (debounced, server side). The ?search= query
 A card from another period shows the "Outside measured quarter" tag.
 Empty state: "No borrowers match this search."
 Done when: search and deep links work, and the tag shows for non-measured rows.
+(v3) Borrowers has no search box of its own any more: the single header search box on every page sends the user here with `?search=`, and this page reads the query string only. The page also adds 3 clickable stat cards (Total borrowers, Across lenders, Flagged) that act as filters, a "Borrowers by status" chart and filter pills (All, Flagged, 2+ lenders), computed client-side from this page's own unfiltered E2 and E4 fetches, not a new field.
 4.3 Borrower Detail /borrowers/:id (E3)
 ┌─────────────────────────────────────────────────────────────┐
 │ ← Borrowers                                                 │
@@ -153,6 +154,7 @@ Sub-page of Borrowers, not a nav tab.
 The default view calls E4 with flag=FLAGGED and sort=exposure. The toggle switches to all facilities (no flag parameter). Search calls E4 with search (matches the borrower name). The spread shows as a min to max range, or one value when min equals max.
 Each card shows the borrower, the instrument type, the divergence flag with its points (dollars never replace them), the exposure in USD (ExposureTag, with the words "Ranking key, not an estimate of loss."), the signal count (SignalChip) and a persistence tag (PersistenceTag). persistence is null until F3 is built, and the tag then reads "Not yet measured".
 Triage is no longer cuttable. Done when: the default view lists FLAGGED facilities by exposure, the toggle and search work, invalid parameters never reach the API from the UI, and every card shows the flag text with its points.
+(v3) The built page is a dashboard plus a table, not a card grid: it calls E4 once with only `sort=exposure` (no flag, no search), and 4 clickable stat tiles plus filter pills (All, Agreement, Review, Flagged, 2+ lenders) slice that one fetched list client-side, so switching filters never refetches. Two bar charts ("Facilities by status" and "Value difference", the latter bucketing the existing `divergencePts` field into fixed ranges) sit above a "Facility directory" table (borrower, lenders, exposure, difference in points, a status dot, and a View link), paged locally with "View all". There is no per-card ExposureTag/SignalChip/PersistenceTag layout, no search box, and no borrower free-text search on this page; use the header search box instead.
 4.5 Facility Comparison /facilities/:id (E5), core screen
 ┌─────────────────────────────────────────────────────────────┐
 │ ← Facilities                                                │
@@ -186,6 +188,7 @@ The Source cell opens sourceUrl in a new tab. Every row has one.
 Every facility has at least 2 rows. If the API returns an error (including DATA_INTEGRITY), show the generic error state with retry. There is no "not enough lenders" screen.
 Done when: all three banner states render with text, the source links open the right filing, the excluded note appears only when excludedCount is above 0, and the dot plot has one dot per row.
 (v2) Facility Comparison gains, all from E5 and all keeping the source link on every number: an exposure line under the banner (exposureUsd, with "Ranking key, not an estimate of loss."); an Evidence panel, which is the lender table extended with cost % of par, fair value % of cost, spread, floor, PIK, maturity and non-accrual (a null dossier cell reads "Not disclosed", and cells that differ across lenders are marked with text, not color alone); signal chips with labels for the codes in signals (NON_ACCRUAL, PIK_DIFFERS, FLOOR_DIFFERS, SPREAD_DIFFERS, MATURITY_DIFFERS, COST_BASIS_GAP, RATE_TYPE_DIFFERS), worded as signals present, never as causes; and, if F3 is built, a History strip (HistoryStrip, inline SVG like DotPlot: prior to current dots per lender, plus the persistence label). history is null when F3 is not built and reads "Not yet measured"; when F3 is built and there are fewer than two linked prior marks, persistence is NO_PRIOR. Done when: the evidence panel shows a dossier null as "Not disclosed" and the chips render with text.
+(v3) The built page is 3 compact cards, not the v2 Evidence panel: "Current reported value" (one zoomed bar per lender, `LenderValueBars`, plus the point spread and, if `signals` is non-empty, a one-line "Why the values may differ" sentence), "Loan details" (loan type, interest rate, maturity bucket, reporting period) and "Lender reports" (each lender's current value and loan amount, with the prior quarter's value shown inline as "Previous -> Current" when a history link exists, and the excluded-holdings note when `excludedCount` is above 0). There is no sortable table, no per-row expand, no dossier fields (cost % of par, FV % of cost, floor, PIK, non-accrual) and no History strip or persistence tag on screen; E5 still returns all of it, nothing here is a backend change.
 4.6 Review Queue /review (E6, E7, E8)
 ┌─────────────────────────────────────────────────────────────┐
 │ Review Queue                                  12 Pending    │
@@ -212,6 +215,9 @@ Confirm calls E7, Reject calls E8. The card leaves the list on success, and E1 i
 On a 409 (the pair changed status), show "This pair was already decided." and refresh the list.
 Skip is local only: it hides the card for this session with no API call.
 Cluster cards offer Reject only, on each pair that formed the cluster. Resolving a cluster means rejecting a pair, then re-running compare.py.
+(v3) The built page shows one case at a time (Previous/Next paging across all items, clusters and pairs mixed in the API's own order) instead of listing every card, with 4 stat tiles (Need review, Possible match, Group issues, Completed) and two progress cards above it. Cluster cards also offer "Same" on each record alongside Reject: "Same" makes no API call (the pair is already AUTO or CONFIRMED, so leaving it alone already means "same") and is logged to the Decisions page with status ACKNOWLEDGED, not CONFIRMED. There is no Skip button any more; a pair card's two actions are "Same borrower" (Confirm) and "Not the same" (Reject). Every decision, including "Same", is recorded to a new in-memory log (`web/src/decisions.js`) shown on the new Decisions page (`/decisions`), which is not a server endpoint and does not persist across a reload.
+4.6a Decisions /decisions (no endpoint of its own; reads the session's own E7/E8 results)
+A new page, not in the original plan. Shows 4 stat cards (Decisions logged, Same borrower/Accepted, Not the same/Separated, Left as is) and a table of every decision this browser has sent since the last reload (when, case name, Possible match or Group issue, and the decision). A "Clear log" button empties it. There is nothing server-side to load: the table is built entirely from what `recordDecision()` has collected locally after each successful E7/E8 call, or after a Group issue "Same" action that makes no call at all. It must never be described as a database table or an audit trail other browsers or devices can see.
 The score is shown here. It is hidden only on the labeling page.
 Done when: both card types render, Confirm and Reject update the list and the badge, the 409 case is handled, and the page states that decisions apply after the next compare run.
 4.7 Metrics /metrics (E9)
@@ -256,6 +262,7 @@ The band table reports "Match rate", not precision. For the two bands below the 
 No figure on this page includes review-queue confirmations, and the page says so in one line.
 Done when: every card renders both its value and its null state, and the sensitivity table and coverage render from live data.
 (v2) New Metrics cards from E9, descriptive and report-only: the signal lift table (evidenceLift: for each signal the share of FLAGGED against the share of AGREEMENT facilities, with both n), the unexplained share (FLAGGED facilities with no signal) and field coverage per BDC (fieldCoverage). If F3 is built, link accuracy with its interval (historyLinks). Each card reads "Not yet measured" when null, and the page says "signals present, not causes" in one line.
+(v3) The built page defaults to a compact dashboard (4 tiles: Match quality, Found matches, Search found, Labelled cases; two bar charts; a Test results card) with a button reading "Show full statistical detail" ("Hide full statistical detail" once open). Everything in this mockup and the v2 paragraph above, every interval, band table, the out-of-time section and the sensitivity table, is unchanged in content and wording; it only moved behind that toggle so the dashboard is the default view.
 4.8 Filings /filings (E10)
 ┌─────────────────────────────────────────────────────────────┐
 │ SEC Filings                       [ Filter filings... ]     │
@@ -267,6 +274,7 @@ Done when: every card renders both its value and its null state, and the sensiti
 └─────────────────────────────────────────────────────────────┘
 
 The filter box filters the loaded list in the browser (E10 has no search parameter).
+(v3) The built page adds, both computed client-side from E10's own rows (no new field, no new endpoint): a "Filings coverage" lender-by-quarter matrix (checkmark present, circle not yet filed, with a complete count per quarter) and a "Latest filings" list (top 5 by period end) linking back to the table. Clicking a table row selects it and shows a detail card (filed date, type, status, holdings count, the SEC filing link). The status column in the table itself is always "Processed": E10 has no issue state in the data, only present or absent.
 4.9 Labeling /label (dev only, not in nav) (E11, E12)
 ┌─────────────────────────────────────────────────────────────┐
 │ Label pair                               Progress n / total │
@@ -300,9 +308,12 @@ Landing (optional)
     Facilities (nav: Triage) /facilities
       Comparison        /facilities/:id
     Review Queue        /review
+    Decisions           /decisions
     Metrics             /metrics
     Filings             /filings
     Labeling (dev)      /label
+
+(v3) Decisions was added above; the landing page was not built, so `/` is the Overview page directly.
 
 6. Page to endpoint map
 Page
@@ -315,7 +326,7 @@ Overview
 E1
 none
 Borrowers
-E2
+E2, E4 (unfiltered, for client-side status)
 none
 Borrower Detail
 E3
@@ -329,6 +340,9 @@ none
 Review Queue
 E6, E7, E8, E1 (badge)
 E7, E8
+Decisions
+none (reads this browser's own past E7/E8 results from memory)
+none
 Metrics
 E9
 none
@@ -341,6 +355,7 @@ E12
 
 7. Shared components
 Card, StatCard, Banner (label plus point spread), SourceLink, PeriodTag ("Outside measured quarter"), RangeStat (renders a Range with intervals, or "Not yet measured"), DotPlot (inline SVG), BandTable, PairCard, ClusterCard, EmptyState, ErrorState (with retry), Skeleton. (v2) ExposureTag, SignalChip, EvidenceTable, HistoryStrip (inline SVG, same approach as DotPlot) and PersistenceTag. No chart library.
+(v3) `DotPlot`, `Banner`, `ExposureTag`, `SignalChip`, `EvidenceTable`, `HistoryStrip` and `PersistenceTag` are all still defined in `web/src/components.jsx` but are no longer used by any page; the redesign replaced them with `DivergenceDonut`, `ClickableDivergenceBar`, `BarList`/`DivergenceSplitChart`, `RankedShareList`, `LenderValueBars` and `RangeBar` (all inline SVG or CSS, still no chart library), plus `StatusPill`/`StatusDot` for the flag colors and `Toast` for the "Decision saved" confirmation. `recordDecision`/`getDecisions`/`clearDecisions` (`web/src/decisions.js`) back the new Decisions page.
 8. Build order by day (matches SPEC section 18)
 Day
 Frontend work
