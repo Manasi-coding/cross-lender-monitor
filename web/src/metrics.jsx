@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { getJson } from "./api.js";
-import { BandTable, Card, Load, PageTitle, RangeBar, RangeStat, ci, useFetch } from "./components.jsx";
+import { BandTable, BarList, Card, CardLabel, Load, PageTitle, RangeBar, RangeStat, StatCard, ci, useFetch } from "./components.jsx";
 import { NOT_YET, SIGNAL_TEXT, pct } from "./format.js";
 // 4.7 Metrics. Every null field reads "Not yet measured" on its own. The held-out evaluation and the out-of-time report are shown
 // separately and never pooled. No figure includes review-queue confirmations.
@@ -16,13 +17,154 @@ export function MetricsPage() {
   const f = useFetch(() => getJson("/api/metrics"), []);
   return (
     <>
-      <PageTitle sub="Held out evaluation of the matcher on the measured quarter. Recall is given blocking. No figure includes review queue confirmations.">Metrics</PageTitle>
-      <Load f={f}>{(m) => <Body m={m} />}</Load>
+      <PageTitle sub="How well is the matching system performing?">Metrics</PageTitle>
+      <Load f={f}>{(m) => <Dashboard m={m} />}</Load>
     </>
   );
 }
 
-function Body({ m }) {
+const headline = (range) => range?.unsureExcluded ?? null;
+
+function Dashboard({ m }) {
+  const [detail, setDetail] = useState(false);
+  const precisionAuto = headline(m.precisionAutoOnly);
+  const recallAuto = headline(m.recallAutoOnly);
+  const precisionReview = headline(m.precisionReviewBand);
+  const precisionHeldOut = headline(m.precisionIfReviewAutoAccepted);
+  const precisionLatest = headline(m.outOfTime?.precisionAutoOnly);
+  const blocking = m.blockingRecall;
+  const blockingFound = blocking ? Math.round(blocking.value * blocking.n) : null;
+
+  // Only the two sample counts CONTRACT.md's E9 actually returns (heldOutCount, outOfTime.labeledCount).
+  // The tuning sample (about 40 pairs) has no API field at all: it is diagnostic only per SPEC.md and
+  // intentionally outside the evaluation endpoint, so it is left out here rather than invented.
+  const heldOutN = m.heldOutCount;
+  const latestN = m.outOfTime?.labeledCount ?? null;
+  const labelledTotal = (heldOutN ?? 0) + (latestN ?? 0);
+
+  // A weighted average of fieldCoverage's per-BDC parsedShare, one row per field, real numbers only.
+  const fieldAverages = (() => {
+    if (!m.fieldCoverage) return null;
+    const sums = new Map();
+    for (const r of m.fieldCoverage) {
+      const cur = sums.get(r.field) ?? { weighted: 0, n: 0 };
+      cur.weighted += (r.parsedShare ?? 0) * r.n;
+      cur.n += r.n;
+      sums.set(r.field, cur);
+    }
+    return [...sums.entries()].map(([field, { weighted, n }]) => ({ field, share: n > 0 ? weighted / n : 0 }));
+  })();
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard compact label="Match quality" value={precisionAuto ? pct(precisionAuto.value) : NOT_YET} note="AUTO matches were correct" tone="brand" />
+        <StatCard compact label="Found matches" value={recallAuto ? pct(recallAuto.value) : NOT_YET} note="Correct matches among tested cases" tone="brand" />
+        <StatCard
+          compact
+          label="Search found"
+          value={blocking ? pct(blocking.value) : NOT_YET}
+          note={blocking ? `${blockingFound} of ${blocking.n} known matches were found` : "Not yet measured"}
+          tone="review"
+        />
+        <StatCard compact label="Labelled cases" value={labelledTotal || NOT_YET} note={`${heldOutN ?? 0} held-out, ${latestN ?? 0} latest-quarter`} tone="neutral" />
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card compact>
+          <CardLabel>Matching performance</CardLabel>
+          <BarList
+            compact
+            rows={[
+              { label: "AUTO", value: precisionAuto ? Math.round(precisionAuto.value * 1000) / 10 : 0, color: "var(--color-brand)" },
+              { label: "Review band", value: precisionReview ? Math.round(precisionReview.value * 1000) / 10 : 0, color: "var(--color-review)" },
+              { label: "Latest check", value: precisionLatest ? Math.round(precisionLatest.value * 1000) / 10 : 0, color: "var(--color-brand-dark)" },
+            ]}
+          />
+          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
+            Share of matches that were correct: AUTO (automatic matches), the Review band (held-out sample), and the latest-quarter check.
+          </p>
+        </Card>
+        <Card compact>
+          <CardLabel>Where the system finds matches</CardLabel>
+          {blocking ? (
+            <>
+              <BarList
+                compact
+                rows={[
+                  { label: "Found", value: blockingFound, color: "var(--color-brand)" },
+                  { label: "Missed", value: blocking.n - blockingFound, color: "var(--color-flagged)" },
+                ]}
+              />
+              <p className="mt-2 text-xs" style={{ color: "var(--color-text-secondary)" }}>{blockingFound} found, {blocking.n - blockingFound} not found</p>
+            </>
+          ) : (
+            <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+          )}
+          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>This measures whether the initial search finds the right company before scoring.</p>
+        </Card>
+      </div>
+
+      <Card compact>
+        <CardLabel>Test results</CardLabel>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-2xl font-bold" style={{ color: "var(--color-text)" }}>{heldOutN ?? NOT_YET}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>Held-out</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>Not used to adjust the system</p>
+          </div>
+          <div>
+            <p className="text-2xl font-bold" style={{ color: "var(--color-text)" }}>{latestN ?? NOT_YET}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>Latest</p>
+            <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>Previous-period test of the system</p>
+          </div>
+        </div>
+        <p className="mt-3 text-xs" style={{ color: "var(--color-text-secondary)" }}>Total: {labelledTotal || NOT_YET} tested cases</p>
+      </Card>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <Card compact>
+          <CardLabel>What needs attention</CardLabel>
+          {m.evidenceLift ? (
+            <BarList
+              compact
+              rows={m.evidenceLift
+                .filter((r) => r.flaggedShare !== null)
+                .map((r) => ({ label: SIGNAL_TEXT[r.code] ?? r.code, value: Math.round(r.flaggedShare * 1000) / 10, color: "var(--color-review)" }))}
+            />
+          ) : (
+            <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+          )}
+          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>These are differences reported in the lenders' filings, not explanations for the gap.</p>
+        </Card>
+        <Card compact>
+          <CardLabel>Information found</CardLabel>
+          {fieldAverages ? (
+            <BarList
+              compact
+              rows={fieldAverages.map((r) => ({ label: FIELD_TEXT[r.field] ?? r.field, value: Math.round(r.share * 1000) / 10, color: "var(--color-brand)" }))}
+            />
+          ) : (
+            <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+          )}
+          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>How often each optional field was disclosed in the filings.</p>
+        </Card>
+      </div>
+
+      <div className="text-center">
+        <button type="button" className="btn-secondary" onClick={() => setDetail((d) => !d)}>
+          {detail ? "Hide full statistical detail" : "Show full statistical detail"}
+        </button>
+      </div>
+      {detail && <DetailedBody m={m} />}
+    </div>
+  );
+}
+
+// The full, rigorous breakdown this page always showed: confidence intervals, every UNSURE
+// treatment, the out-of-time check kept strictly separate, band tables and sensitivity. Unchanged
+// from before this redesign, just moved behind a toggle so the dashboard above is the default view.
+function DetailedBody({ m }) {
   const review = m.bands?.find((b) => b.name === "REVIEW") ?? null;
   return (
     <div className="space-y-6">
