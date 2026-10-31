@@ -288,6 +288,22 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   const byHoldingId = new Map(c.holdings.map((h) => [h.holdingId, h]));
   const title = c.holdings[0]?.rawName ?? "Name not disclosed";
   const lender = c.holdings[0]?.bdcName ?? "Not disclosed";
+
+  // The most common maturity and spread across this group's own holdings (real data, no new
+  // field), so a row whose own maturity or spread does not match the rest can be flagged: the
+  // actual signal a reviewer needs to spot the odd one out, instead of reading every row by eye.
+  const mode = (values) => {
+    const counts = new Map();
+    for (const v of values) if (v !== null) counts.set(v, (counts.get(v) ?? 0) + 1);
+    let best = null, bestN = 0;
+    for (const [v, n] of counts) if (n > bestN) { best = v; bestN = n; }
+    return counts.size > 1 ? best : null;
+  };
+  const commonMaturity = mode(c.holdings.map((h) => h.maturityDate));
+  const commonSpread = mode(c.holdings.map((h) => h.spreadBps));
+  const holdingDiffers = (h) =>
+    (commonMaturity !== null && h?.maturityDate !== null && h?.maturityDate !== commonMaturity) ||
+    (commonSpread !== null && h?.spreadBps !== null && h?.spreadBps !== commonSpread);
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -320,18 +336,37 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
                   <th className="py-1.5 pr-4 font-medium">Record</th>
                   <th className="py-1.5 pr-4 font-medium">Maturity</th>
                   <th className="py-1.5 pr-4 font-medium">Spread</th>
+                  <th className="py-1.5 pr-4 font-medium">Differs from the group</th>
                   <th className="py-1.5 pr-2 font-medium">Source</th>
                 </tr>
               </thead>
               <tbody>
-                {c.holdings.map((h) => (
-                  <tr key={h.holdingId} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                    <td className="py-1.5 pr-4" style={{ color: "var(--color-text)" }}>{h.rawName ?? "Name not disclosed"}</td>
-                    <td className="py-1.5 pr-4" style={{ color: "var(--color-text)" }}>{h.maturityDate ?? "Not disclosed"}</td>
-                    <td className="py-1.5 pr-4" style={{ color: "var(--color-text)" }}>{bps(h.spreadBps, "Not disclosed")}</td>
-                    <td className="py-1.5 pr-2"><SourceLink url={h.sourceUrl}>View filing</SourceLink></td>
-                  </tr>
-                ))}
+                {c.holdings.map((h) => {
+                  const maturityDiffers = commonMaturity !== null && h.maturityDate !== null && h.maturityDate !== commonMaturity;
+                  const spreadDiffers = commonSpread !== null && h.spreadBps !== null && h.spreadBps !== commonSpread;
+                  const differs = maturityDiffers || spreadDiffers;
+                  return (
+                    <tr key={h.holdingId} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                      <td className="py-1.5 pr-4" style={{ color: "var(--color-text)" }}>{h.rawName ?? "Name not disclosed"}</td>
+                      <td className="py-1.5 pr-4" style={{ color: maturityDiffers ? "var(--color-flagged)" : "var(--color-text)" }}>{h.maturityDate ?? "Not disclosed"}</td>
+                      <td className="py-1.5 pr-4" style={{ color: spreadDiffers ? "var(--color-flagged)" : "var(--color-text)" }}>{bps(h.spreadBps, "Not disclosed")}</td>
+                      <td className="py-1.5 pr-4">
+                        {differs ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
+                            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
+                            {maturityDiffers && spreadDiffers ? "Maturity and spread differ" : maturityDiffers ? "Maturity differs" : "Spread differs"}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-brand-dark)", background: "var(--color-brand-light)" }}>
+                            <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-green)" }} />
+                            Matches the group
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 pr-2"><SourceLink url={h.sourceUrl}>View filing</SourceLink></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -343,16 +378,27 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
             </p>
             <ul className="mt-2 space-y-2">
               {c.pairs.map((p) => {
-                const nameA = byHoldingId.get(p.holdingIdA)?.rawName ?? "Name not disclosed";
-                const nameB = byHoldingId.get(p.holdingIdB)?.rawName ?? "Name not disclosed";
+                const holdingA = byHoldingId.get(p.holdingIdA);
+                const holdingB = byHoldingId.get(p.holdingIdB);
+                const nameA = holdingA?.rawName ?? "Name not disclosed";
+                const nameB = holdingB?.rawName ?? "Name not disclosed";
+                const suspicious = holdingDiffers(holdingA) || holdingDiffers(holdingB);
                 const dismissed = dismissedPairs.has(`${p.holdingIdA}-${p.holdingIdB}`);
                 return (
                   <li
                     key={`${p.holdingIdA}-${p.holdingIdB}`}
                     className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-2.5 text-sm ${fading.has(`pair-${p.holdingIdA}-${p.holdingIdB}`) || dismissed ? "fade-out-card" : ""}`}
-                    style={{ borderColor: "var(--color-border)" }}
+                    style={{ borderColor: suspicious ? "var(--color-flagged)" : "var(--color-border)" }}
                   >
-                    <span style={{ color: "var(--color-text)" }}>{nameA} <span style={{ color: "var(--color-text-muted)" }}>and</span> {nameB}</span>
+                    <span style={{ color: "var(--color-text)" }}>
+                      {nameA} <span style={{ color: "var(--color-text-muted)" }}>and</span> {nameB}
+                      {suspicious && (
+                        <span className="ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
+                          <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
+                          Worth a closer look
+                        </span>
+                      )}
+                    </span>
                     <div className="flex gap-2">
                       <button
                         type="button"
