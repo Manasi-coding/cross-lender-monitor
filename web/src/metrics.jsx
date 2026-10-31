@@ -17,7 +17,7 @@ export function MetricsPage() {
   const f = useFetch(() => getJson("/api/metrics"), []);
   return (
     <>
-      <PageTitle sub="How well is the matching system performing?">Metrics</PageTitle>
+      <PageTitle>Metrics</PageTitle>
       <Load f={f}>{(m) => <Dashboard m={m} />}</Load>
     </>
   );
@@ -30,7 +30,6 @@ function Dashboard({ m }) {
   const precisionAuto = headline(m.precisionAutoOnly);
   const recallAuto = headline(m.recallAutoOnly);
   const precisionReview = headline(m.precisionReviewBand);
-  const precisionHeldOut = headline(m.precisionIfReviewAutoAccepted);
   const precisionLatest = headline(m.outOfTime?.precisionAutoOnly);
   const blocking = m.blockingRecall;
   const blockingFound = blocking ? Math.round(blocking.value * blocking.n) : null;
@@ -58,16 +57,10 @@ function Dashboard({ m }) {
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard compact label="Match quality" value={precisionAuto ? pct(precisionAuto.value) : NOT_YET} note="AUTO matches were correct" tone="brand" />
-        <StatCard compact label="Found matches" value={recallAuto ? pct(recallAuto.value) : NOT_YET} note="Correct matches among tested cases" tone="brand" />
-        <StatCard
-          compact
-          label="Search found"
-          value={blocking ? pct(blocking.value) : NOT_YET}
-          note={blocking ? `${blockingFound} of ${blocking.n} known matches were found` : "Not yet measured"}
-          tone="review"
-        />
-        <StatCard compact label="Labelled cases" value={labelledTotal || NOT_YET} note={`${heldOutN ?? 0} held-out, ${latestN ?? 0} latest-quarter`} tone="neutral" />
+        <StatCard compact label="Match quality" value={precisionAuto ? pct(precisionAuto.value) : NOT_YET} tone="brand" />
+        <StatCard compact label="Found matches" value={recallAuto ? pct(recallAuto.value) : NOT_YET} tone="brand" />
+        <StatCard compact label="Search found" value={blocking ? pct(blocking.value) : NOT_YET} tone="review" />
+        <StatCard compact label="Labelled cases" value={labelledTotal || NOT_YET} tone="neutral" />
       </div>
 
       <div className="grid gap-3 lg:grid-cols-2">
@@ -76,14 +69,11 @@ function Dashboard({ m }) {
           <BarList
             compact
             rows={[
-              { label: "AUTO", value: precisionAuto ? Math.round(precisionAuto.value * 1000) / 10 : 0, color: "var(--color-brand)" },
-              { label: "Review band", value: precisionReview ? Math.round(precisionReview.value * 1000) / 10 : 0, color: "var(--color-review)" },
-              { label: "Latest check", value: precisionLatest ? Math.round(precisionLatest.value * 1000) / 10 : 0, color: "var(--color-brand-dark)" },
+              { label: "AUTO", value: precisionAuto ? Math.round(precisionAuto.value * 1000) / 10 : 0, color: "var(--color-chart-green)" },
+              { label: "Review band", value: precisionReview ? Math.round(precisionReview.value * 1000) / 10 : 0, color: "var(--color-chart-yellow)" },
+              { label: "Latest check", value: precisionLatest ? Math.round(precisionLatest.value * 1000) / 10 : 0, color: "var(--color-chart-green-dark)" },
             ]}
           />
-          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>
-            Share of matches that were correct: AUTO (automatic matches), the Review band (held-out sample), and the latest-quarter check.
-          </p>
         </Card>
         <Card compact>
           <CardLabel>Where the system finds matches</CardLabel>
@@ -92,8 +82,8 @@ function Dashboard({ m }) {
               <BarList
                 compact
                 rows={[
-                  { label: "Found", value: blockingFound, color: "var(--color-brand)" },
-                  { label: "Missed", value: blocking.n - blockingFound, color: "var(--color-flagged)" },
+                  { label: "Found", value: blockingFound, color: "var(--color-chart-green)" },
+                  { label: "Missed", value: blocking.n - blockingFound, color: "var(--color-chart-red)" },
                 ]}
               />
               <p className="mt-2 text-xs" style={{ color: "var(--color-text-secondary)" }}>{blockingFound} found, {blocking.n - blockingFound} not found</p>
@@ -101,7 +91,6 @@ function Dashboard({ m }) {
           ) : (
             <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
           )}
-          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>This measures whether the initial search finds the right company before scoring.</p>
         </Card>
       </div>
 
@@ -111,12 +100,10 @@ function Dashboard({ m }) {
           <div>
             <p className="text-2xl font-bold" style={{ color: "var(--color-text)" }}>{heldOutN ?? NOT_YET}</p>
             <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>Held-out</p>
-            <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>Not used to adjust the system</p>
           </div>
           <div>
             <p className="text-2xl font-bold" style={{ color: "var(--color-text)" }}>{latestN ?? NOT_YET}</p>
             <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>Latest</p>
-            <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>Previous-period test of the system</p>
           </div>
         </div>
         <p className="mt-3 text-xs" style={{ color: "var(--color-text-secondary)" }}>Total: {labelledTotal || NOT_YET} tested cases</p>
@@ -130,19 +117,18 @@ function Dashboard({ m }) {
               compact
               rows={m.evidenceLift
                 .filter((r) => r.flaggedShare !== null)
-                .map((r) => ({ label: SIGNAL_TEXT[r.code] ?? r.code, value: Math.round(r.flaggedShare * 1000) / 10, color: "var(--color-review)" }))}
+                .map((r) => ({ label: SIGNAL_TEXT[r.code] ?? r.code, value: Math.round(r.flaggedShare * 1000) / 10, color: "var(--color-chart-yellow)" }))}
             />
           ) : (
             <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
           )}
-          <p className="mt-2 text-xs" style={{ color: "var(--color-text-muted)" }}>These are differences reported in the lenders' filings, not explanations for the gap.</p>
         </Card>
         <Card compact>
           <CardLabel>Information found</CardLabel>
           {fieldAverages ? (
             <BarList
               compact
-              rows={fieldAverages.map((r) => ({ label: FIELD_TEXT[r.field] ?? r.field, value: Math.round(r.share * 1000) / 10, color: "var(--color-brand)" }))}
+              rows={fieldAverages.map((r) => ({ label: FIELD_TEXT[r.field] ?? r.field, value: Math.round(r.share * 1000) / 10, color: "var(--color-chart-green)" }))}
             />
           ) : (
             <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>

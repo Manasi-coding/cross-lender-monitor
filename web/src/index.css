@@ -35,6 +35,14 @@
   --color-review-light: #fbf3e2;
   --color-review-faint: #fdfaf4;
 
+  /* Bright, saturated chart colours (bars, segments, dots). Kept separate from the muted
+     brand/review/flagged tokens above, which stay soft for text, pill backgrounds and card tints
+     so the page itself does not turn into a wall of saturated colour; only the data marks pop. */
+  --color-chart-green: #16a34a;
+  --color-chart-green-dark: #15803d;
+  --color-chart-yellow: #eab308;
+  --color-chart-red: #ef4444;
+
   --radius-card: 14px;
 }
 

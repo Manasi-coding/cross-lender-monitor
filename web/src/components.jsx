@@ -93,9 +93,9 @@ export function Load({ f, children }) {
 
 // Status colour tokens shared by every pill, bar and chip in the app. Keyed by the Flag enum.
 export const FLAG_STATUS = {
-  AGREEMENT: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", faint: "var(--color-brand-faint)", dot: "var(--color-brand)" },
-  MILD: { fg: "var(--color-review)", bg: "var(--color-review-light)", faint: "var(--color-review-faint)", dot: "var(--color-review)" },
-  FLAGGED: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", faint: "var(--color-flagged-faint)", dot: "var(--color-flagged)" },
+  AGREEMENT: { fg: "var(--color-brand-dark)", bg: "var(--color-brand-light)", faint: "var(--color-brand-faint)", dot: "var(--color-chart-green)" },
+  MILD: { fg: "var(--color-review)", bg: "var(--color-review-light)", faint: "var(--color-review-faint)", dot: "var(--color-chart-yellow)" },
+  FLAGGED: { fg: "var(--color-flagged)", bg: "var(--color-flagged-light)", faint: "var(--color-flagged-faint)", dot: "var(--color-chart-red)" },
 };
 
 // `to` renders a Link (navigates), `onClick` renders a button (acts in place, e.g. applying a
@@ -211,9 +211,9 @@ export function DivergenceDonut({ agreement, mild, flagged }) {
   const r = 15.9155;
   const c = 2 * Math.PI * r;
   const segs = [
-    ["AGREEMENT", agreement, "var(--color-brand)"],
-    ["MILD", mild, "var(--color-review)"],
-    ["FLAGGED", flagged, "var(--color-flagged)"],
+    ["AGREEMENT", agreement, "var(--color-chart-green)"],
+    ["MILD", mild, "var(--color-chart-yellow)"],
+    ["FLAGGED", flagged, "var(--color-chart-red)"],
   ];
   let offset = 0;
   const sharePct = (n) => (total === 0 ? null : Math.round((n / total) * 100));
@@ -322,8 +322,8 @@ export function RangeBar({ ci: c }) {
   return (
     <div className="mt-1.5" aria-hidden="true">
       <div className="relative h-2 w-full rounded-full" style={{ background: "var(--color-border)" }}>
-        <div className="absolute inset-y-0 rounded-full" style={{ left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%`, background: "var(--color-brand)", opacity: 0.45 }} />
-        <div className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ left: `${valuePct}%`, background: "var(--color-brand-dark)", borderColor: "var(--color-surface)" }} />
+        <div className="absolute inset-y-0 rounded-full" style={{ left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%`, background: "var(--color-chart-green)", opacity: 0.5 }} />
+        <div className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ left: `${valuePct}%`, background: "var(--color-chart-green-dark)", borderColor: "var(--color-surface)" }} />
       </div>
     </div>
   );
@@ -441,7 +441,7 @@ export function RankedShareList({ rows, total }) {
         <div key={r.label} className="flex items-center gap-3">
           <span className="w-44 shrink-0 truncate text-sm font-medium sm:w-56" style={{ color: "var(--color-text)" }} title={r.label}>{r.label}</span>
           <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
-            <div className="h-full rounded-full" style={{ width: `${(r.value / max) * 100}%`, background: "var(--color-flagged)" }} />
+            <div className="h-full rounded-full" style={{ width: `${(r.value / max) * 100}%`, background: "var(--color-chart-red)" }} />
           </div>
           <span className="w-10 shrink-0 text-right text-xs font-semibold" style={{ color: "var(--color-text-secondary)" }}>
             {total ? `${((r.value / total) * 100).toFixed(0)}%` : r.value}
@@ -524,7 +524,7 @@ function range(values) {
 // no status meaning here, the axis position is the real data.
 // All green, varying only in shade, so lenders are told apart without implying any lender's value
 // is itself "good", "bad" or a status colour (that meaning is reserved for StatusPill/FLAG_STATUS).
-const DOT_COLORS = ["var(--color-brand-dark)", "var(--color-brand)", "#4f7a3d", "#7fa65c"];
+const DOT_COLORS = ["var(--color-chart-green-dark)", "var(--color-chart-green)", "#15803d", "#4ade80"];
 export function DotPlot({ rows }) {
   const [lo, hi] = range(rows.map((r) => r.value));
   const pad = Math.max((hi - lo) * 0.15, 0.5);

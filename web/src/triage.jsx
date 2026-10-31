@@ -9,10 +9,10 @@ import { fixed, points, SIGNAL_TEXT, typeName, usd } from "./format.js";
 // grouping of an existing number into fixed ranges, the same style as E9's own sensitivity
 // thresholds (1, 2, 5 points); no new field, no invented category.
 const DIFF_BUCKETS = [
-  { label: "0-1 pts", min: 0, max: 1, color: "var(--color-brand)" },
-  { label: "1-2 pts", min: 1, max: 2, color: "var(--color-brand-dark)" },
-  { label: "2-5 pts", min: 2, max: 5, color: "var(--color-review)" },
-  { label: "5+ pts", min: 5, max: Infinity, color: "var(--color-flagged)" },
+  { label: "0-1 pts", min: 0, max: 1, color: "var(--color-chart-green)" },
+  { label: "1-2 pts", min: 1, max: 2, color: "var(--color-chart-green-dark)" },
+  { label: "2-5 pts", min: 2, max: 5, color: "var(--color-chart-yellow)" },
+  { label: "5+ pts", min: 5, max: Infinity, color: "var(--color-chart-red)" },
 ];
 const FACILITY_FILTERS = [
   ["all", "All"],
@@ -81,9 +81,9 @@ export function TriagePage() {
                   <BarList
                     compact
                     rows={[
-                      { label: "Agreement", value: counts.agreement, color: "var(--color-brand)" },
-                      { label: "Review", value: counts.mild, color: "var(--color-review)" },
-                      { label: "Flagged", value: counts.flagged, color: "var(--color-flagged)" },
+                      { label: "Agreement", value: counts.agreement, color: "var(--color-chart-green)" },
+                      { label: "Review", value: counts.mild, color: "var(--color-chart-yellow)" },
+                      { label: "Flagged", value: counts.flagged, color: "var(--color-chart-red)" },
                     ]}
                   />
                 </Card>

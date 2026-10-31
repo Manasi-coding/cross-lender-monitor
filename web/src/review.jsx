@@ -56,7 +56,7 @@ export function ReviewPage() {
 
   return (
     <>
-      <PageTitle sub="A short list of cases that need your decision">Review queue</PageTitle>
+      <PageTitle>Review queue</PageTitle>
       {notice && (
         <p role="alert" className="mb-4 rounded-2xl border p-3 text-sm" style={{ borderColor: "var(--color-flagged)", background: "var(--color-flagged-light)", color: "var(--color-flagged)" }}>
           {notice}
@@ -86,8 +86,8 @@ export function ReviewPage() {
                   <BarList
                     compact
                     rows={[
-                      { label: "Possible match", value: matches.length, color: "var(--color-brand)" },
-                      { label: "Group issue", value: groups.length, color: "var(--color-flagged)" },
+                      { label: "Possible match", value: matches.length, color: "var(--color-chart-green)" },
+                      { label: "Group issue", value: groups.length, color: "var(--color-chart-red)" },
                     ]}
                   />
                 </Card>
@@ -95,11 +95,11 @@ export function ReviewPage() {
                   <CardLabel>What needs attention</CardLabel>
                   <div className="space-y-1.5 text-sm">
                     <p className="flex items-center gap-2" style={{ color: "var(--color-text)" }}>
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-brand)" }} />
+                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-chart-green)" }} />
                       Possible match <span className="ml-auto font-semibold">{matches.length}</span>
                     </p>
                     <p className="flex items-center gap-2" style={{ color: "var(--color-text)" }}>
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-flagged)" }} />
+                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
                       Group issue <span className="ml-auto font-semibold">{groups.length}</span>
                     </p>
                   </div>
@@ -151,7 +151,7 @@ export function ReviewPage() {
 }
 
 function SectionLabel({ tone = "review", children }) {
-  const dot = tone === "brand" ? "var(--color-brand)" : tone === "flagged" ? "var(--color-flagged)" : "var(--color-review)";
+  const dot = tone === "brand" ? "var(--color-chart-green)" : tone === "flagged" ? "var(--color-chart-red)" : "var(--color-chart-yellow)";
   return (
     <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>
       <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />
@@ -179,9 +179,9 @@ function SecondaryPreview({ item, index, total }) {
 // Likelihood colour follows the app's green/amber/red language: a high score reads as likely, the
 // middle of the REVIEW band as worth a closer look, the low end as more likely not the same.
 function likelihoodColor(pct) {
-  if (pct >= 88) return "var(--color-brand)";
-  if (pct >= 84) return "var(--color-review)";
-  return "var(--color-flagged)";
+  if (pct >= 88) return "var(--color-chart-green)";
+  if (pct >= 84) return "var(--color-chart-yellow)";
+  return "var(--color-chart-red)";
 }
 
 function LikelihoodBar({ pct }) {
