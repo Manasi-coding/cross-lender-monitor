@@ -55,6 +55,15 @@ evaluation:
   bootstrap_seed: 1
   ci_level: 0.95
   wilson_z: "1.96"                 # a string, read as a Decimal by evaluate.py
+evidence:                          # not part of the matcher hash; fixed before any signal result was printed, not tuned (SPEC 12.10)
+  spread_differs_bps: 25           # half the 50 bps blocking window
+  floor_differs_bps: 25
+  floor_filers: [ads, hps]         # ORCIC discloses no floor in any form, so FLOOR_DIFFERS is computed for ADS and HPS only
+  maturity_differs_days: 31        # one month, because ORCIC maturity is stored as a month end
+  history_check_size: 30           # F3 hand check of the within-BDC link (30 links), report only
+  history_check_seed: 1
+  pik_differs_min_bps: 0           # any difference between two disclosed PIK values (strictly above 0)
+                                   # COST_BASIS_GAP reuses divergence.mild_pts; the persistence dead band reuses divergence.mild_pts
 blocking_recall:
   sample_size: 30
   seed: 1

@@ -35,8 +35,10 @@ import psycopg
 
 from pipeline.block import RUN_TIMES, append_run_time
 from pipeline.config import load_config, load_env_file, measured_period_end
+from pipeline.evidence import cost_pct_par, floor_ciks, fv_pct_cost, signals
+from pipeline.link_history import persistence
 
-CURATED = ["facility_summary", "facility_comparisons", "holding_facility_map", "canonical_facilities",
+CURATED = ["facility_history", "facility_summary", "facility_comparisons", "holding_facility_map", "canonical_facilities",
            "canonical_borrowers", "review_cluster_members", "review_clusters"]    # delete order (children first)
 SEQUENCES = [("canonical_borrowers", "canonical_borrower_id"), ("canonical_facilities", "facility_id"),
              ("review_clusters", "cluster_id")]
@@ -114,6 +116,7 @@ def most_frequent(values):
 def run(conn, period: date, cfg: dict | None = None) -> dict:
     cfg = cfg or load_config()
     mild, flagged = cutoffs(cfg)
+    fciks = floor_ciks(cfg)
     log: list[str] = []
 
     pairs = conn.execute(
@@ -126,10 +129,16 @@ def run(conn, period: date, cfg: dict | None = None) -> dict:
     ids = sorted({h for p in edges for h in p[:2]})
     rows = {r[0]: r for r in conn.execute(
         "SELECT n.holding_id, n.bdc_cik, f.bdc_name, n.borrower_normalized, n.instrument_type_norm, n.reference_rate, "
-        "n.maturity_date, n.spread_bps, n.principal, n.fair_value_pct_par, n.excluded_reason, n.source_url "
+        "n.maturity_date, n.spread_bps, n.principal, n.fair_value_pct_par, n.excluded_reason, n.source_url, "
+        "n.cost, n.fair_value, n.floor_bps, n.pik_bps, n.non_accrual "
         "FROM normalized_holdings n JOIN raw_holdings h ON h.holding_id = n.holding_id "
         "JOIN raw_filings f ON f.filing_id = h.filing_id WHERE n.holding_id = ANY(%s)", (ids,)).fetchall()}
     bdc = {i: r[1] for i, r in rows.items()}
+    # F3: prior-quarter marks of the linked holdings (within-BDC link from link_history.py), present only once history has been built
+    built = conn.execute("SELECT prior_period_end FROM history_build").fetchone()
+    prior_mark = {h: pct for h, pct in conn.execute(
+        "SELECT l.holding_id, p.fair_value_pct_par FROM holding_history_links l JOIN normalized_holdings p ON p.holding_id = l.prior_holding_id "
+        "WHERE l.holding_id = ANY(%s)", (ids,)).fetchall()} if built else {}
 
     clusters, skipped = build_clusters(edges, bdc, rejected)
     for s in skipped:
@@ -183,16 +192,31 @@ def run(conn, period: date, cfg: dict | None = None) -> dict:
                 conn.execute("INSERT INTO holding_facility_map (holding_id, facility_id) VALUES (%s, %s)", (m, d["facility_id"]))
                 conn.execute(
                     "INSERT INTO facility_comparisons (facility_id, holding_id, period_end_date, bdc_cik, bdc_name, spread_bps_total, "
-                    "principal, fair_value_pct_par, excluded_reason, source_url) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (d["facility_id"], m, period, r[1], r[2], r[7], r[8], r[9], r[10], r[11]))
+                    "principal, fair_value_pct_par, excluded_reason, source_url, cost, cost_pct_par, fv_pct_cost, floor_bps, pik_bps, "
+                    "maturity_date, non_accrual) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (d["facility_id"], m, period, r[1], r[2], r[7], r[8], r[9], r[10], r[11], r[12],
+                     cost_pct_par(r[12], r[8], r[9]), fv_pct_cost(r[13], r[12]), r[14], r[15], r[6], r[16]))
             marks = [rows[m][9] for m in d["members"] if rows[m][9] is not None]
             div = max(marks) - min(marks)
             # exposure_usd (v2 F1): the gap in points applied to the smallest compared position. A ranking key, not a loss estimate.
             smallest = min(rows[m][8] for m in d["members"] if rows[m][9] is not None)
             d.update(lender_count=len(marks), excluded_count=len(d["members"]) - len(marks), divergence=div,
                      flag=flag_for(div, mild, flagged), exposure=exposure_usd(div, smallest))
-            conn.execute("INSERT INTO facility_summary (facility_id, lender_count, excluded_count, divergence_pts, divergence_flag, exposure_usd) "
-                         "VALUES (%s, %s, %s, %s, %s, %s)", (d["facility_id"], d["lender_count"], d["excluded_count"], div, d["flag"], d["exposure"]))
+            # F2 signals over the included holdings only (a mark exists), from evidence.py; a null field is not disclosed and is skipped
+            included = [{"non_accrual": rows[m][16], "pik_bps": rows[m][15], "floor_bps": rows[m][14], "bdc_cik": rows[m][1], "spread_bps": rows[m][7],
+                         "maturity_date": rows[m][6], "cost_pct_par": cost_pct_par(rows[m][12], rows[m][8], rows[m][9]), "reference_rate": rows[m][5]}
+                        for m in d["members"] if rows[m][9] is not None]
+            d["signals"] = signals(included, cfg, fciks)
+            conn.execute("INSERT INTO facility_summary (facility_id, lender_count, excluded_count, divergence_pts, divergence_flag, exposure_usd, signal_codes) "
+                         "VALUES (%s, %s, %s, %s, %s, %s, %s)", (d["facility_id"], d["lender_count"], d["excluded_count"], div, d["flag"], d["exposure"], d["signals"]))
+            if built:                                   # F3 step 9: NO_PRIOR (fewer than 2 prior marks) has no row, derived by absence
+                prior = [prior_mark[m] for m in d["members"] if rows[m][9] is not None and prior_mark.get(m) is not None]
+                if len(prior) >= 2:
+                    pdiv = max(prior) - min(prior)
+                    pflag = flag_for(pdiv, mild, flagged)
+                    conn.execute("INSERT INTO facility_history (facility_id, prior_period_end, prior_lender_count, prior_divergence_pts, "
+                                 "prior_divergence_flag, persistence) VALUES (%s, %s, %s, %s, %s, %s)",
+                                 (d["facility_id"], built[0], len(prior), pdiv, pflag, persistence(d["flag"], div, pflag, pdiv, mild)))
         for members in collisions:
             cid = conn.execute("INSERT INTO review_clusters (period_end_date, reason) VALUES (%s, 'SAME_BDC_COLLISION') RETURNING cluster_id",
                                (period,)).fetchone()[0]

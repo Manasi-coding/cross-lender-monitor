@@ -74,5 +74,8 @@ def seed_normalized(conn, rows: list[dict]) -> list[int]:
             (hid, r["bdc_cik"], r["period_end_date"], r["borrower_normalized"], r["instrument_type_norm"],
              r.get("maturity_date"), r.get("spread_bps"), r.get("principal"), r.get("fair_value_pct_par"),
              r.get("excluded_reason"), r.get("reference_rate")))
+        extra = {k: r[k] for k in ("cost", "fair_value", "floor_bps", "pik_bps", "non_accrual") if k in r}
+        for col, val in extra.items():                       # optional dossier columns
+            conn.execute(f"UPDATE normalized_holdings SET {col} = %s WHERE holding_id = %s", (val, hid))
         ids.append(hid)
     return ids

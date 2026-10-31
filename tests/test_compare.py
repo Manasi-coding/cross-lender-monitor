@@ -394,3 +394,97 @@ def test_migration_009_backfills_existing_facilities_from_facility_comparisons(e
         applied = apply_migrations(conn)
         assert applied == [f.name for f in sorted(MIGRATIONS_DIR.glob("*.sql")) if f.name >= "009"]
         assert conn.execute("SELECT exposure_usd FROM facility_summary").fetchone()[0] == Decimal("100000")     # 5 points of 2,000,000
+
+
+# ------------------------------------------------------------------ F2 dossier and signals (SPEC tests 29 and 37, DECISIONS section 26)
+from pipeline.evidence import cost_pct_par, floor_ciks, fv_pct_cost, signals          # noqa: E402
+
+ADS, HPS, ORC = CFG["filers"]["ads"]["cik"], CFG["filers"]["hps"]["cik"], CFG["filers"]["orcic"]["cik"]
+
+
+def hd(**kw):
+    base = {"non_accrual": False, "pik_bps": None, "floor_bps": None, "bdc_cik": ADS, "spread_bps": None, "maturity_date": None,
+            "cost_pct_par": None, "reference_rate": None}
+    base.update(kw)
+    return base
+
+
+def fired(a, b, code):
+    return code in signals([a, b], CFG, floor_ciks(CFG))
+
+
+def test_29_spread_floor_maturity_and_cost_signals_fire_at_their_threshold_and_not_below():
+    D = Decimal
+    assert not fired(hd(spread_bps=D(500)), hd(spread_bps=D(524)), "SPREAD_DIFFERS") and fired(hd(spread_bps=D(500)), hd(spread_bps=D(525)), "SPREAD_DIFFERS")
+    assert not fired(hd(floor_bps=D(0)), hd(floor_bps=D(24), bdc_cik=HPS), "FLOOR_DIFFERS") and fired(hd(floor_bps=D(0)), hd(floor_bps=D(25), bdc_cik=HPS), "FLOOR_DIFFERS")
+    m = date(2030, 1, 1)
+    assert not fired(hd(maturity_date=m), hd(maturity_date=date(2030, 1, 31)), "MATURITY_DIFFERS")          # 30 days
+    assert fired(hd(maturity_date=m), hd(maturity_date=date(2030, 2, 1)), "MATURITY_DIFFERS")                # 31 days
+    assert not fired(hd(cost_pct_par=D("99.00")), hd(cost_pct_par=D("99.99")), "COST_BASIS_GAP") and fired(hd(cost_pct_par=D("99.00")), hd(cost_pct_par=D("100.00")), "COST_BASIS_GAP")
+
+
+def test_29_pik_differs_on_any_difference_and_non_accrual_on_any_flag():
+    D = Decimal
+    assert not fired(hd(pik_bps=D(0)), hd(pik_bps=D(0)), "PIK_DIFFERS") and fired(hd(pik_bps=D(0)), hd(pik_bps=D("0.01")), "PIK_DIFFERS")
+    assert not fired(hd(pik_bps=D(100)), hd(pik_bps=None), "PIK_DIFFERS")                                    # one value is not disclosed: nothing to compare
+    assert fired(hd(non_accrual=True), hd(), "NON_ACCRUAL") and not fired(hd(), hd(), "NON_ACCRUAL")
+
+
+def test_29_floor_is_computed_for_ads_and_hps_only_never_orcic():
+    D = Decimal
+    assert fired(hd(floor_bps=D(0), bdc_cik=ADS), hd(floor_bps=D(100), bdc_cik=HPS), "FLOOR_DIFFERS")
+    assert not fired(hd(floor_bps=D(0), bdc_cik=ADS), hd(floor_bps=D(100), bdc_cik=ORC), "FLOOR_DIFFERS")    # only one disclosed value remains
+
+
+def test_29_rate_type_differs_only_for_fixed_against_a_non_null_floating_rate():
+    f = lambda x, y: fired(hd(reference_rate=x), hd(reference_rate=y), "RATE_TYPE_DIFFERS")
+    assert f("FIXED", "SOFR") and f("SOFR", "FIXED") and f("FIXED", "EURIBOR")
+    assert not f("FIXED", "FIXED") and not f("FIXED", None) and not f("SOFR", "EURIBOR") and not f(None, None)
+
+
+def test_dossier_arithmetic_and_nulls():
+    D = Decimal
+    assert cost_pct_par(D(99), D(100), D(98)) == D(99) and cost_pct_par(None, D(100), D(98)) is None
+    assert cost_pct_par(D(99), D(100), None) is None and cost_pct_par(D(99), D(0), D(98)) is None          # no mark or no principal: never a division
+    assert fv_pct_cost(D(90), D(100)) == D(90) and fv_pct_cost(D(90), D(0)) is None and fv_pct_cost(None, D(100)) is None
+
+
+def test_compare_writes_the_dossier_and_signals_and_a_facility_with_no_difference_has_none(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, b, c, d = seed_normalized(conn, [
+            h(B1, "acme", pct="98", principal="1000", cost=Decimal(1000), fair_value=Decimal(980), spread_bps=Decimal(500), maturity_date=date(2030, 1, 1), non_accrual=True),
+            h(B2, "acme", pct="95", principal="2000", cost=Decimal(1900), fair_value=Decimal(1900), spread_bps=Decimal(550), maturity_date=date(2030, 3, 1)),
+            h(B1, "zeta", pct="98", principal="1000", spread_bps=Decimal(500), maturity_date=date(2030, 1, 1)),
+            h(B2, "zeta", pct="98", principal="1000", spread_bps=Decimal(500), maturity_date=date(2030, 1, 1))])
+        pair(conn, a, b)
+        pair(conn, c, d)
+        compare.run(conn, P, CFG)
+        sig = dict(conn.execute("SELECT b.canonical_name, s.signal_codes FROM facility_summary s JOIN canonical_facilities f USING (facility_id) "
+                                "JOIN canonical_borrowers b USING (canonical_borrower_id)").fetchall())
+        row = conn.execute("SELECT cost, cost_pct_par, fv_pct_cost, maturity_date, non_accrual, floor_bps, pik_bps FROM facility_comparisons WHERE holding_id = %s", (a,)).fetchone()
+        nulls = conn.execute("SELECT cost, cost_pct_par, fv_pct_cost FROM facility_comparisons WHERE holding_id = %s", (c,)).fetchone()
+    assert sig["acme"] == ["NON_ACCRUAL", "SPREAD_DIFFERS", "MATURITY_DIFFERS", "COST_BASIS_GAP"]       # cost % of par 100 against 95
+    assert sig["zeta"] == []
+    assert row == (Decimal(1000), Decimal(100), Decimal(98), date(2030, 1, 1), True, None, Decimal(0))
+    assert nulls == (None, None, None)                                                                    # not disclosed stays null
+
+
+def test_37_two_runs_give_identical_signals_and_exposure(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, b = seed_normalized(conn, [h(B1, "acme", spread_bps=Decimal(500), cost=Decimal(1000), pik_bps=Decimal(0)),
+                                      h(B2, "acme", pct="95", spread_bps=Decimal(600), cost=Decimal(900), pik_bps=Decimal(50))])
+        pair(conn, a, b)
+        compare.run(conn, P, CFG)
+        first = conn.execute("SELECT facility_id, exposure_usd, signal_codes FROM facility_summary ORDER BY 1").fetchall()
+        compare.run(conn, P, CFG)
+        second = conn.execute("SELECT facility_id, exposure_usd, signal_codes FROM facility_summary ORDER BY 1").fetchall()
+    assert first == second and first[0][2] == ["PIK_DIFFERS", "SPREAD_DIFFERS", "COST_BASIS_GAP"]
+
+
+def test_migration_011_rejects_an_unknown_signal_code_and_defaults_to_an_empty_list(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        a, b = seed_normalized(conn, [h(B1, "acme"), h(B2, "acme", pct="95")])
+        pair(conn, a, b)
+        compare.run(conn, P, CFG)
+        with pytest.raises(psycopg.errors.CheckViolation):
+            conn.execute("UPDATE facility_summary SET signal_codes = ARRAY['EXPLAINED_BY']")
