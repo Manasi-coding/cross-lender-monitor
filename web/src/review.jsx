@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiFailure, getJson, postJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { Card, EmptyState, Load, PageTitle, PeriodTag, SourceLink, Toast, useFetch } from "./components.jsx";
+import { Card, CardLabel, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, Toast, useFetch } from "./components.jsx";
 import { bps, fixed, typeName } from "./format.js";
 // 4.6 Review queue. The score is shown here (it is hidden only on the labeling page).
 const key = (i) => (i.type === "pair" ? `p${i.holdingIdA}-${i.holdingIdB}` : `c${i.clusterId}`);
@@ -61,9 +61,23 @@ export function ReviewPage() {
       <Load f={f}>
         {(items) => {
           const shown = items.filter((i) => !skipped.has(key(i)));
+          const clusterCount = shown.filter((i) => i.type === "cluster").length;
+          const pairCount = shown.filter((i) => i.type === "pair").length;
+
           return (
             <>
-              <p className="mb-4 font-semibold" style={{ color: "var(--color-text)" }}>{shown.length} pending</p>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <StatCard label="Waiting" value={shown.length} note={`${clusterCount} ${clusterCount === 1 ? "cluster" : "clusters"}, ${pairCount} ${pairCount === 1 ? "pair" : "pairs"}`} tone="review" />
+                <Card>
+                  <CardLabel>What does review mean?</CardLabel>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                    The system found a possible match or grouping that needs a human decision.
+                  </p>
+                </Card>
+              </div>
+
+              <h2 className="mb-4 mt-6 text-lg font-semibold" style={{ color: "var(--color-text)" }}>Cases requiring a decision</h2>
+
               {shown.length === 0 ? (
                 <EmptyState>Nothing is waiting for review.</EmptyState>
               ) : (
@@ -94,15 +108,50 @@ export function ReviewPage() {
   );
 }
 
+// A small pill badge, reusing the app's green/amber/red tokens: green for an actual match
+// confidence, amber for a cluster still needing a human look.
+function Badge({ children, tone = "review" }) {
+  const styles = tone === "brand" ? { color: "var(--color-brand-dark)", background: "var(--color-brand-light)" } : { color: "var(--color-review)", background: "var(--color-review-light)" };
+  return (
+    <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" style={styles}>
+      {children}
+    </span>
+  );
+}
+
+function ConfidenceBar({ pct }) {
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between text-xs" style={{ color: "var(--color-text-secondary)" }}>
+        <span>Match confidence</span>
+        <span className="font-semibold" style={{ color: "var(--color-text)" }}>{pct}%</span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: "var(--color-brand)" }} />
+      </div>
+    </div>
+  );
+}
+
 function PairCard({ p, measured, busy, fading, onAct, onSkip }) {
+  const pct = Math.round(Number(p.score) * 100);
   return (
     <Card className={fading ? "fade-out-card" : ""}>
-      <p className="font-bold uppercase" style={{ color: "var(--color-text)" }}>{p.rawNameA ?? "Name not disclosed"} and {p.rawNameB ?? "Name not disclosed"}<PeriodTag periodEnd={p.periodEnd} measured={measured} /></p>
-      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>Score {fixed(p.score, 2)}. {typeName(p.instrumentType)}.</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>Possible match</p>
+        <Badge tone="brand">{pct}% match</Badge>
+      </div>
+      <p className="mt-1 font-semibold uppercase" style={{ color: "var(--color-text)" }}>
+        {p.rawNameA ?? "Name not disclosed"} and {p.rawNameB ?? "Name not disclosed"}<PeriodTag periodEnd={p.periodEnd} measured={measured} />
+      </p>
+      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{typeName(p.instrumentType)}</p>
       <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Maturity {p.maturityDateA ?? "Not disclosed"} and {p.maturityDateB ?? "Not disclosed"}. Spread {bps(p.spreadBpsA, "Not disclosed")} and {bps(p.spreadBpsB, "Not disclosed")}.</p>
-      <p className="text-sm"><SourceLink url={p.sourceUrlA}>Source A</SourceLink> <SourceLink url={p.sourceUrlB}>Source B</SourceLink></p>
+      <p className="mt-1 text-sm"><SourceLink url={p.sourceUrlA}>Source A</SourceLink> <SourceLink url={p.sourceUrlB}>Source B</SourceLink></p>
+      <div className="mt-3">
+        <ConfidenceBar pct={pct} />
+      </div>
       <div className="mt-3 flex gap-2">
-        <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "confirm")}>Confirm</button>
+        <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "confirm")}>Accept</button>
         <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "reject")}>Reject</button>
         <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={onSkip}>Skip</button>
       </div>
@@ -113,8 +162,13 @@ function PairCard({ p, measured, busy, fading, onAct, onSkip }) {
 function ClusterCard({ c, measured, busy, fading, onReject }) {
   return (
     <Card>
-      <p className="font-bold" style={{ color: "var(--color-text)" }}>CLUSTER NEEDS REVIEW<PeriodTag periodEnd={c.periodEnd} measured={measured} /></p>
-      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>Two holdings from the same BDC landed in one cluster.</p>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>
+          Cluster needs review<PeriodTag periodEnd={c.periodEnd} measured={measured} />
+        </p>
+        <Badge>{c.pairs.length} {c.pairs.length === 1 ? "pair" : "pairs"}</Badge>
+      </div>
+      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>Two holdings from the same lender landed in one cluster.</p>
       <ul className="my-2 space-y-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>
         {c.holdings.map((h) => (
           <li key={h.holdingId}>{h.rawName ?? "Name not disclosed"}, {h.bdcName}, maturity {h.maturityDate ?? "Not disclosed"}, spread {bps(h.spreadBps, "Not disclosed")} <SourceLink url={h.sourceUrl} /></li>
