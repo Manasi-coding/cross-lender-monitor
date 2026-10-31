@@ -522,7 +522,9 @@ function range(values) {
 // One dot per lender on a fair value / par axis, inline SVG, no chart library. Alternating dot
 // colours (brand, brand-dark, review, flagged) only to tell lenders apart visually; colour carries
 // no status meaning here, the axis position is the real data.
-const DOT_COLORS = ["var(--color-brand-dark)", "var(--color-review)", "var(--color-flagged)", "var(--color-brand)"];
+// All green, varying only in shade, so lenders are told apart without implying any lender's value
+// is itself "good", "bad" or a status colour (that meaning is reserved for StatusPill/FLAG_STATUS).
+const DOT_COLORS = ["var(--color-brand-dark)", "var(--color-brand)", "#4f7a3d", "#7fa65c"];
 export function DotPlot({ rows }) {
   const [lo, hi] = range(rows.map((r) => r.value));
   const pad = Math.max((hi - lo) * 0.15, 0.5);
