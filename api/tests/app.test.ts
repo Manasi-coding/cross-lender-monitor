@@ -21,14 +21,3 @@ describe("error shape", () => {
     expect(res.body.error.code).toBe("NOT_FOUND");
   });
 });
-
-describe("skeleton routes", () => {
-  it("returns 501 NOT_IMPLEMENTED in the standard shape for E9", async () => {
-    const app = createApp({ pool, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: "2026-06-30" });
-    const res = await request(app).get("/api/metrics");
-    expect(res.status).toBe(501);
-    expect(res.body).toEqual({
-      error: { code: "NOT_IMPLEMENTED", message: "E9 is not implemented yet." },
-    });
-  });
-});

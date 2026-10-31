@@ -4,10 +4,32 @@ import { ApiError, likePattern, parseId } from "./errors";
 
 // E1 to E5 (CONTRACT.md). Read only, parameterized SQL, no config file. NUMERIC values leave as strings, as Postgres returns them.
 // [v2] fields built on Day 7: E1 flaggedExposureUsd, and E4 divergencePts, divergenceFlag, exposureUsd with the flag and sort parameters.
-// [v2] fields not built yet and left out: E4 signalCount and persistence, E5 exposureUsd, signals, dossier row fields and history.
+// [v2] F2 built: E4 signalCount, E5 exposureUsd, signals and the dossier row fields. F3 built: E4 persistence and E5 history are null (Not yet
+// measured) until link_history.py has run (a history_build row), and after that a facility without a facility_history row is NO_PRIOR.
 
 const FLAGS = ["AGREEMENT", "MILD", "FLAGGED"];
 const SORTS = ["borrower", "exposure"];
+
+// E5 history: null until link_history.py has run. Afterwards NO_PRIOR (no facility_history row) or the stored persistence, with each lender's prior mark.
+async function historyFor(pool: Pool, facilityId: number, rows: { holdingId: number; bdcName: string }[]) {
+  const built = await pool.query(`SELECT to_char(prior_period_end, 'YYYY-MM-DD') AS d FROM history_build`);
+  if (built.rows.length === 0) return null;
+  const [fh, marks] = await Promise.all([
+    pool.query(
+      `SELECT to_char(prior_period_end, 'YYYY-MM-DD') AS "priorPeriodEnd", persistence, prior_divergence_pts AS "priorDivergencePts", prior_divergence_flag AS "priorDivergenceFlag"
+         FROM facility_history WHERE facility_id = $1`,
+      [facilityId],
+    ),
+    pool.query(
+      `SELECT l.holding_id AS id, p.fair_value_pct_par AS pct FROM holding_history_links l JOIN normalized_holdings p ON p.holding_id = l.prior_holding_id
+        WHERE l.holding_id = ANY($1::int[])`,
+      [rows.map((r) => r.holdingId)],
+    ),
+  ]);
+  const pct = new Map<number, string | null>(marks.rows.map((m) => [m.id as number, m.pct as string | null]));
+  const base = fh.rows[0] ?? { priorPeriodEnd: built.rows[0].d, persistence: "NO_PRIOR", priorDivergencePts: null, priorDivergenceFlag: null };
+  return { ...base, rows: rows.map((r) => ({ bdcName: r.bdcName, priorFairValuePctPar: pct.get(r.holdingId) ?? null })) };
+}
 
 export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: string) {
   // E1 GET /api/overview
@@ -102,10 +124,13 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
               (SELECT MIN(c.spread_bps_total) FROM facility_comparisons c WHERE c.facility_id = f.facility_id AND c.fair_value_pct_par IS NOT NULL) AS "spreadMin",
               (SELECT MAX(c.spread_bps_total) FROM facility_comparisons c WHERE c.facility_id = f.facility_id AND c.fair_value_pct_par IS NOT NULL) AS "spreadMax",
               to_char(f.maturity_bucket, 'YYYY-MM-DD') AS "maturityBucket", s.lender_count AS "lenderCount",
-              s.divergence_pts AS "divergencePts", s.divergence_flag AS "divergenceFlag", s.exposure_usd AS "exposureUsd"
+              s.divergence_pts AS "divergencePts", s.divergence_flag AS "divergenceFlag", s.exposure_usd AS "exposureUsd",
+              cardinality(s.signal_codes)::int AS "signalCount",
+              CASE WHEN EXISTS (SELECT 1 FROM history_build) THEN COALESCE(h.persistence, 'NO_PRIOR') END AS "persistence"
          FROM canonical_facilities f
          JOIN canonical_borrowers b ON b.canonical_borrower_id = f.canonical_borrower_id
          JOIN facility_summary s ON s.facility_id = f.facility_id
+         LEFT JOIN facility_history h ON h.facility_id = f.facility_id
         WHERE ($1::text IS NULL OR b.canonical_name ILIKE $1 ESCAPE '\\')
           AND ($2::text IS NULL OR s.divergence_flag = $2)
         ORDER BY ${order}`,
@@ -124,6 +149,8 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
         divergencePts: r.divergencePts,
         divergenceFlag: r.divergenceFlag,
         exposureUsd: r.exposureUsd,
+        signalCount: r.signalCount,
+        persistence: r.persistence,
       })),
     );
   });
@@ -135,7 +162,8 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
       `SELECT f.facility_id AS "facilityId", b.canonical_name AS "borrowerName",
               to_char(f.period_end_date, 'YYYY-MM-DD') AS "periodEnd", f.instrument_type_norm AS "instrumentType",
               f.reference_rate AS "referenceRate", to_char(f.maturity_bucket, 'YYYY-MM-DD') AS "maturityBucket",
-              s.excluded_count AS "excludedCount", s.divergence_pts AS "divergencePts", s.divergence_flag AS "divergenceFlag"
+              s.excluded_count AS "excludedCount", s.divergence_pts AS "divergencePts", s.divergence_flag AS "divergenceFlag",
+              s.exposure_usd AS "exposureUsd", s.signal_codes AS "signals"
          FROM canonical_facilities f
          JOIN canonical_borrowers b ON b.canonical_borrower_id = f.canonical_borrower_id
          JOIN facility_summary s ON s.facility_id = f.facility_id
@@ -145,7 +173,9 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
     if (head.rows.length === 0) throw new ApiError(404, "NOT_FOUND", "No such facility.");
     const { rows } = await pool.query(
       `SELECT c.bdc_name AS "bdcName", c.spread_bps_total AS "spreadBps", c.fair_value_pct_par AS "fairValuePctPar",
-              c.principal AS "principal", c.source_url AS "sourceUrl"
+              c.principal AS "principal", c.source_url AS "sourceUrl", c.holding_id AS "holdingId",
+              c.cost_pct_par AS "costPctPar", c.fv_pct_cost AS "fvPctCost", c.floor_bps AS "floorBps", c.pik_bps AS "pikBps",
+              to_char(c.maturity_date, 'YYYY-MM-DD') AS "maturityDate", c.non_accrual AS "nonAccrual"
          FROM facility_comparisons c
         WHERE c.facility_id = $1 AND c.fair_value_pct_par IS NOT NULL
         ORDER BY c.bdc_name COLLATE "C" ASC, c.holding_id ASC`,
@@ -154,6 +184,7 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
     // every facility has at least 2 included rows; fewer means stored data broke an invariant
     if (rows.length < 2) throw new ApiError(500, "DATA_INTEGRITY", "A facility has fewer than 2 lenders with a usable mark.");
     const h = head.rows[0];
+    const history = await historyFor(pool, id, rows);
     res.json({
       facilityId: h.facilityId,
       borrowerName: h.borrowerName,
@@ -161,10 +192,13 @@ export function registerFacilities(app: Express, pool: Pool, measuredPeriodEnd: 
       instrumentType: h.instrumentType,
       referenceRate: h.referenceRate,
       maturityBucket: h.maturityBucket,
-      rows,
+      rows: rows.map(({ holdingId: _holdingId, ...r }) => r),
       excludedCount: h.excludedCount,
       divergencePts: h.divergencePts,
       divergenceFlag: h.divergenceFlag,
+      exposureUsd: h.exposureUsd,
+      signals: h.signals,
+      history,
     });
   });
 }

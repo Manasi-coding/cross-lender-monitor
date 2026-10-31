@@ -84,16 +84,23 @@ export function registerReview(app: Express, pool: Pool, measuredPeriodEnd: stri
     const [a, b] = x < y ? [x, y] : [y, x];
     // one statement: the status check and the update cannot be separated by another request
     const done = await pool.query(
-      `UPDATE candidate_pairs SET status = $3, updated_at = now()
-        WHERE holding_id_a = $1 AND holding_id_b = $2 AND status = ANY($4::text[])
-        RETURNING holding_id_a AS "holdingIdA", holding_id_b AS "holdingIdB", status`,
-      [a, b, to, from],
+      `UPDATE candidate_pairs c SET status = $3, updated_at = now()
+         FROM normalized_holdings na, normalized_holdings nb
+        WHERE c.holding_id_a = $1 AND c.holding_id_b = $2 AND c.status = ANY($4::text[])
+          AND na.holding_id = c.holding_id_a AND nb.holding_id = c.holding_id_b AND na.period_end_date = $5 AND nb.period_end_date = $5
+        RETURNING c.holding_id_a AS "holdingIdA", c.holding_id_b AS "holdingIdB", c.status`,
+      [a, b, to, from, measuredPeriodEnd],
     );
     if (done.rows.length === 1) {
       res.json(done.rows[0]);
       return;
     }
-    const exists = await pool.query(`SELECT status FROM candidate_pairs WHERE holding_id_a = $1 AND holding_id_b = $2`, [a, b]);
+    // a pair outside the measured period is not part of the review queue: 404, the same as an unknown pair
+    const exists = await pool.query(
+      `SELECT c.status FROM candidate_pairs c JOIN normalized_holdings na ON na.holding_id = c.holding_id_a JOIN normalized_holdings nb ON nb.holding_id = c.holding_id_b
+        WHERE c.holding_id_a = $1 AND c.holding_id_b = $2 AND na.period_end_date = $3 AND nb.period_end_date = $3`,
+      [a, b, measuredPeriodEnd],
+    );
     if (exists.rows.length === 0) throw new ApiError(404, "NOT_FOUND", "No such pair.");
     throw new ApiError(409, "CONFLICT", `A pair with status ${exists.rows[0].status} cannot become ${to}.`);
   }

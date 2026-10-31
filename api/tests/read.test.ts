@@ -33,7 +33,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
   });
   beforeEach(async () => {
     await pool.query(
-      `TRUNCATE facility_summary, facility_comparisons, holding_facility_map, canonical_facilities, canonical_borrowers,
+      `TRUNCATE history_build, history_link_checks, facility_history, facility_summary, facility_comparisons, holding_facility_map, canonical_facilities, canonical_borrowers,
                 review_cluster_members, review_clusters, candidate_pairs, normalized_holdings, raw_holdings, raw_filings RESTART IDENTITY CASCADE`,
     );
     filings = [];
@@ -186,20 +186,20 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     return { fz, fa1, fa2 };
   }
 
-  it("E4 default order is unchanged by the v2 parameters (test 31) and carries the built v2 fields only", async () => {
+  it("E4 default order is unchanged by the v2 parameters (test 31) and carries the built v2 fields", async () => {
     const { fz, fa1, fa2 } = await threeFacilities();
     const res = await request(app).get("/api/facilities");
     expect(res.status).toBe(200);
     expect(res.body.map((f: { facilityId: number }) => f.facilityId)).toEqual([fa2, fa1, fz]); // borrower, instrumentType ascending
     expect(Object.keys(res.body[0])).toEqual([
       "facilityId", "borrowerName", "periodEnd", "instrumentType", "referenceRate", "spreadBps", "maturityBucket", "lenderCount",
-      "divergencePts", "divergenceFlag", "exposureUsd",
+      "divergencePts", "divergenceFlag", "exposureUsd", "signalCount", "persistence",
     ]);
     expect(res.body[2].spreadBps).toEqual({ min: "500", max: "550" });
     expect(res.body[2]).toMatchObject({ divergencePts: "5", divergenceFlag: "FLAGGED", exposureUsd: "30000" });
     expect((await request(app).get("/api/facilities?sort=borrower")).body).toEqual(res.body);
-    for (const f of res.body) expect(f).not.toHaveProperty("signalCount"); // [v2] not built yet, left out
-    for (const f of res.body) expect(f).not.toHaveProperty("persistence");
+    for (const f of res.body) expect(f.signalCount).toBe(0);
+    for (const f of res.body) expect(f.persistence).toBeNull(); // F3 not built: Not yet measured
   });
 
   it("E4 sort=exposure orders by exposure, then divergence, then facility id, and is stable across calls (test 28)", async () => {
@@ -243,18 +243,84 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     expect(res.status).toBe(200);
     expect(Object.keys(res.body)).toEqual([
       "facilityId", "borrowerName", "periodEnd", "instrumentType", "referenceRate", "maturityBucket", "rows", "excludedCount", "divergencePts", "divergenceFlag",
+      "exposureUsd", "signals", "history",
     ]);
     expect(res.body).not.toHaveProperty("availablePeriods");
     expect(res.body).toMatchObject({ facilityId: f, borrowerName: "acme", periodEnd: P2, excludedCount: 1, divergencePts: "3", divergenceFlag: "FLAGGED" });
     expect(res.body.rows.map((r: { bdcName: string }) => r.bdcName)).toEqual(["Alpha BDC", "Beta BDC"]); // included only, sorted by bdcName
     for (const r of res.body.rows) {
-      expect(Object.keys(r)).toEqual(["bdcName", "spreadBps", "fairValuePctPar", "principal", "sourceUrl"]);
+      expect(Object.keys(r)).toEqual([
+        "bdcName", "spreadBps", "fairValuePctPar", "principal", "sourceUrl", "costPctPar", "fvPctCost", "floorBps", "pikBps", "maturityDate", "nonAccrual",
+      ]);
       expect(r.sourceUrl).toMatch(/^https:\/\/example\.test\/src\//);
     }
     expect(res.body.rows[0]).toMatchObject({ spreadBps: "500", fairValuePctPar: "98.5", principal: "5000000" });
-    expect(res.body).not.toHaveProperty("exposureUsd"); // [v2] E5 fields are Day 9 work
-    expect(res.body).not.toHaveProperty("signals");
-    expect(res.body).not.toHaveProperty("history");
+    expect(res.body).toMatchObject({ exposureUsd: "60000", signals: [], history: null });
+  });
+
+  it("test 32: E5 carries the dossier, a dossier null stays null (Not disclosed), spreadBps is still total spread and signals use the 7 codes", async () => {
+    await seedFilings();
+    const b = await borrower("acme");
+    const f = await facility(
+      b, "FIRST_LIEN",
+      [
+        { bdc: 0, spread: "525", pct: "98", principal: "5000000" },
+        { bdc: 1, spread: "500", pct: "95", principal: "2000000" },
+      ],
+      { div: "3", flag: "FLAGGED", exposure: "60000" },
+    );
+    await pool.query(`UPDATE facility_summary SET signal_codes = ARRAY['PIK_DIFFERS','SPREAD_DIFFERS'] WHERE facility_id = $1`, [f]);
+    await pool.query(
+      `UPDATE facility_comparisons SET cost_pct_par = 99.5, fv_pct_cost = 98.5, floor_bps = 50, pik_bps = 25, maturity_date = '2030-01-31', non_accrual = true
+        WHERE facility_id = $1 AND bdc_name = 'Alpha BDC'`,
+      [f],
+    );
+    const res = await request(app).get(`/api/facilities/${f}/comparison`);
+    expect(res.body.signals).toEqual(["PIK_DIFFERS", "SPREAD_DIFFERS"]);
+    const [alpha, beta] = res.body.rows;
+    expect(alpha).toMatchObject({ bdcName: "Alpha BDC", spreadBps: "525", costPctPar: "99.5", fvPctCost: "98.5", floorBps: "50", pikBps: "25", maturityDate: "2030-01-31", nonAccrual: true });
+    expect(beta).toMatchObject({ bdcName: "Beta BDC", spreadBps: "500", costPctPar: null, fvPctCost: null, floorBps: null, pikBps: null, maturityDate: null, nonAccrual: null });
+    const e4 = (await request(app).get("/api/facilities")).body.find((x: { facilityId: number }) => x.facilityId === f);
+    expect(e4.signalCount).toBe(2);
+  });
+
+  it("test 36: history is null and persistence is null when F3 is not built, and NO_PRIOR when it is built without two prior marks", async () => {
+    await seedFilings();
+    const b = await borrower("acme");
+    const f = await facility(b, "FIRST_LIEN", two("98", "95"), { div: "3", flag: "FLAGGED", exposure: "60000" });
+    expect((await request(app).get(`/api/facilities/${f}/comparison`)).body.history).toBeNull();
+    expect((await request(app).get("/api/facilities")).body[0].persistence).toBeNull();
+    await pool.query(`INSERT INTO history_build (build_id, prior_period_end, period_end_date, current_holdings, linked) VALUES (1, $1, $2, 10, 0)`, [P1, P2]);
+    const built = (await request(app).get(`/api/facilities/${f}/comparison`)).body.history;
+    expect(built).toEqual({
+      priorPeriodEnd: P1, persistence: "NO_PRIOR", priorDivergencePts: null, priorDivergenceFlag: null,
+      rows: [{ bdcName: "Alpha BDC", priorFairValuePctPar: null }, { bdcName: "Beta BDC", priorFairValuePctPar: null }],
+    });
+    expect((await request(app).get("/api/facilities")).body[0].persistence).toBe("NO_PRIOR");
+  });
+
+  it("E5 history carries the stored persistence and each lender's linked prior mark; E4 persistence agrees", async () => {
+    await seedFilings();
+    const b = await borrower("acme");
+    const f = await facility(b, "FIRST_LIEN", two("98", "95"), { div: "3", flag: "FLAGGED", exposure: "60000" });
+    const cur = (await pool.query(`SELECT holding_id, bdc_cik FROM facility_comparisons WHERE facility_id = $1 ORDER BY bdc_name`, [f])).rows;
+    const prior = [];
+    for (const [i, c] of cur.entries()) {
+      const fi = (await pool.query(`SELECT filing_id FROM raw_filings WHERE cik = $1 AND period_end_date = $2`, [c.bdc_cik, i === 0 ? P1 : P1])).rows[0]?.filing_id
+        ?? (await pool.query(`INSERT INTO raw_filings (cik, bdc_name, form_type, period_end_date, filing_date, accession_number, source_url) VALUES ($1, 'x', '10-Q', $2, '2026-05-11', $3, 'u') RETURNING filing_id`, [c.bdc_cik, P1, `acc-prior-${i}`])).rows[0].filing_id;
+      const h = (await pool.query(`INSERT INTO raw_holdings (filing_id, portfolio_company_raw, source_url) VALUES ($1, 'p', 'u') RETURNING holding_id`, [fi])).rows[0].holding_id;
+      await pool.query(`INSERT INTO normalized_holdings (holding_id, bdc_cik, period_end_date, borrower_normalized, instrument_type_norm, fair_value_pct_par, source_url) VALUES ($1, $2, $3, 'p', 'FIRST_LIEN', $4, 'u')`, [h, c.bdc_cik, P1, i === 0 ? "97.5" : "97"]);
+      await pool.query(`INSERT INTO holding_history_links (holding_id, prior_holding_id, link_rule) VALUES ($1, $2, 'EXACT_KEY')`, [c.holding_id, h]);
+      prior.push(h);
+    }
+    await pool.query(`INSERT INTO history_build (build_id, prior_period_end, period_end_date, current_holdings, linked) VALUES (1, $1, $2, 2, 2)`, [P1, P2]);
+    await pool.query(`INSERT INTO facility_history (facility_id, prior_period_end, prior_lender_count, prior_divergence_pts, prior_divergence_flag, persistence) VALUES ($1, $2, 2, 0.5, 'AGREEMENT', 'WIDENED')`, [f, P1]);
+    const hist = (await request(app).get(`/api/facilities/${f}/comparison`)).body.history;
+    expect(hist).toEqual({
+      priorPeriodEnd: P1, persistence: "WIDENED", priorDivergencePts: "0.5", priorDivergenceFlag: "AGREEMENT",
+      rows: [{ bdcName: "Alpha BDC", priorFairValuePctPar: "97.5" }, { bdcName: "Beta BDC", priorFairValuePctPar: "97" }],
+    });
+    expect((await request(app).get("/api/facilities")).body[0].persistence).toBe("WIDENED");
   });
 
   it("E5 returns 500 DATA_INTEGRITY when a facility has fewer than 2 included rows (test 22), 404 for an unknown id and 400 for a bad id", async () => {
@@ -388,6 +454,23 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     }
   });
 
+  it("E7 and E8 return 404 for a pair outside the measured period and leave its status alone", async () => {
+    await seedFilings();
+    const a = await holding(0, "Old A", { period: P1 });
+    const b = await holding(1, "Old B", { period: P1 });
+    const [x, y] = a < b ? [a, b] : [b, a];
+    await pair(x, y, "0.85", "REVIEW");
+    for (const action of ["confirm", "reject"]) {
+      const res = await request(app).post(`/api/review-queue/${x}/${y}/${action}`);
+      expect(res.status, action).toBe(404);
+      expect(res.body.error.code).toBe("NOT_FOUND");
+    }
+    expect(await statusOf(x, y)).toBe("REVIEW");
+    // the same pair is reachable when its quarter is the measured one
+    const other = createApp({ pool, enableLabeling: false, nodeEnv: "production", measuredPeriodEnd: P1 });
+    expect((await request(other).post(`/api/review-queue/${x}/${y}/confirm`)).status).toBe(200);
+  });
+
   it("E7 and E8 return 404 for an unknown pair and 400 for a bad id", async () => {
     await fresh("REVIEW");
     expect((await request(app).post("/api/review-queue/90001/90002/confirm")).status).toBe(404);
@@ -431,8 +514,7 @@ describe.skipIf(!baseUrl)("E1 to E8 and E10", () => {
     expect(res.body[0].holdingsCount).toBe(2);
   });
 
-  it("E9 is still a 501 skeleton, and E11 and E12 are 404 with the flag off", async () => {
-    expect((await request(app).get("/api/metrics")).status).toBe(501);
+  it("E11 and E12 are 404 with the flag off", async () => {
     expect((await request(app).get("/api/label/next")).status).toBe(404);
     expect((await request(app).post("/api/label").send({})).status).toBe(404);
   });

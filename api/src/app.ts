@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { ApiError, sendError } from "./errors";
 import { registerFacilities } from "./facilities";
 import { registerLabeling } from "./labeling";
+import { registerMetrics } from "./metrics";
 import { registerReview } from "./review";
 
 // Convention: NUMERIC values leave the API as strings, exactly as Postgres returns them.
@@ -33,8 +34,8 @@ export function createApp(opts: AppOptions): express.Express {
   registerFacilities(app, pool, opts.measuredPeriodEnd);
   registerReview(app, pool, opts.measuredPeriodEnd);
 
-  // E9 is Day 9 work (the held-out evaluation and the live fields).
-  app.get("/api/metrics", notImplemented("E9"));
+  // E9 (metrics.ts)
+  registerMetrics(app, pool, opts.measuredPeriodEnd);
 
   // E10 GET /api/filings (CONTRACT.md). Sort: periodEnd descending, bdcName ascending.
   app.get("/api/filings", async (_req, res) => {
