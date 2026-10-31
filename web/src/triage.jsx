@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { BarList, Card, CardLabel, EmptyState, LenderValueBars, Load, PeriodTag, SourceLink, StatCard, StatusDot, StatusPill, useFetch } from "./components.jsx";
+import { BarList, Card, CardLabel, EmptyState, LenderValueBars, Load, PeriodTag, StatCard, StatusDot, StatusPill, useFetch } from "./components.jsx";
 import { fixed, NOT_YET, points, SIGNAL_TEXT, typeName, usd } from "./format.js";
 
 // Buckets of divergencePts, a field E4 already returns for every facility. Purely a client-side
@@ -165,13 +165,6 @@ export function TriagePage() {
 
 // ------------------------------------------------------------------ 4.5 Facility comparison
 
-// One short sentence of status meaning, no repeated restatement elsewhere on the page.
-const STATUS_SENTENCE = {
-  AGREEMENT: (n) => `${n} ${n === 1 ? "lender reports" : "lenders report"} nearly the same value.`,
-  MILD: () => "Values differ enough to review.",
-  FLAGGED: () => "Values differ significantly.",
-};
-
 export function ComparisonPage() {
   const { id = "" } = useParams();
   const f = useFetch(() => getJson(`/api/facilities/${encodeURIComponent(id)}/comparison`), [id]);
@@ -191,17 +184,12 @@ export function ComparisonPage() {
         {(c) => {
           const hist = c.history;
           const priorBy = new Map(hist?.rows.map((r) => [r.bdcName, r.priorFairValuePctPar]) ?? []);
-          const sentence = (STATUS_SENTENCE[c.divergenceFlag] ?? (() => ""))(c.rows.length);
           return (
             <div className="space-y-4">
-              <div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h1 className="text-2xl font-bold uppercase leading-tight" style={{ color: "var(--color-text)" }}>{c.borrowerName}</h1>
-                  <StatusPill flag={c.divergenceFlag} />
-                </div>
-                <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-                  {sentence} <span style={{ color: "var(--color-text-muted)" }}>Reporting period: {c.periodEnd}<PeriodTag periodEnd={c.periodEnd} measured={overview?.measuredPeriodEnd} /></span>
-                </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-bold uppercase leading-tight" style={{ color: "var(--color-text)" }}>{c.borrowerName}</h1>
+                <StatusPill flag={c.divergenceFlag} />
+                <PeriodTag periodEnd={c.periodEnd} measured={overview?.measuredPeriodEnd} />
               </div>
 
               <Card compact>
@@ -268,16 +256,6 @@ export function ComparisonPage() {
                   )}
                 </Card>
               </div>
-
-              <Card compact>
-                <CardLabel>Source</CardLabel>
-                <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Figures come from the lenders' SEC filings.</p>
-                <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1">
-                  {c.rows.map((r) => (
-                    <SourceLink key={r.bdcName + r.sourceUrl} url={r.sourceUrl}>{r.bdcName} filing &rarr;</SourceLink>
-                  ))}
-                </div>
-              </Card>
             </div>
           );
         }}
