@@ -517,6 +517,31 @@ export function DotPlot({ rows }) {
   );
 }
 
+// A zoomed horizontal bar per lender, axis padded around the real min/max so a small real
+// difference (values cluster near 99-100%) is still visible. The reported value is the bar's
+// length; colour only tells lenders apart, as in DotPlot.
+export function LenderValueBars({ rows }) {
+  const [lo, hi] = range(rows.map((r) => r.value));
+  const pad = Math.max((hi - lo) * 0.4, 0.3);
+  const axisMin = lo - pad, axisMax = hi + pad;
+  const widthPct = (v) => ((v - axisMin) / (axisMax - axisMin)) * 100;
+  return (
+    <div className="space-y-3">
+      {rows.map((r, i) => (
+        <div key={r.label}>
+          <div className="mb-1 flex items-center justify-between text-sm">
+            <span className="font-medium" style={{ color: "var(--color-text)" }}>{r.label}</span>
+            <span className="font-semibold" style={{ color: "var(--color-text)" }}>{r.value.toFixed(2)}%</span>
+          </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+            <div className="h-full rounded-full" style={{ width: `${widthPct(r.value)}%`, background: DOT_COLORS[i % DOT_COLORS.length] }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Prior to current marks, one pair of dots per lender, inline SVG. A missing prior mark is drawn as text, never as a dot.
 export function HistoryStrip({ rows, persistence }) {
   const vals = rows.flatMap((r) => (r.prior === null ? [r.current] : [r.prior, r.current]));
@@ -543,12 +568,14 @@ export function HistoryStrip({ rows, persistence }) {
   );
 }
 
+// Only the loan amount is in the default row; reported value and spread live in the chart above
+// the table, so the table does not repeat them. Everything else is behind the row's expand toggle.
 const CORE_COLS = [
-  { head: "Spread", key: "spreadBps", cell: (r) => (r.spreadBps === null ? null : fixed(r.spreadBps, 0) + " bps"), sort: (r) => (r.spreadBps === null ? -Infinity : Number(r.spreadBps)) },
-  { head: "FV % of par", key: "fairValuePctPar", cell: (r) => fixed(r.fairValuePctPar, 2), sort: (r) => Number(r.fairValuePctPar) },
-  { head: "Principal", key: "principal", cell: (r) => usd(r.principal), sort: (r) => Number(r.principal) },
+  { head: "Loan amount", key: "principal", cell: (r) => usd(r.principal), sort: (r) => Number(r.principal) },
 ];
 const DOSSIER_COLS = [
+  { head: "Reported value", cell: (r) => fixed(r.fairValuePctPar, 2) + "%" },
+  { head: "Spread", cell: (r) => (r.spreadBps === null ? null : fixed(r.spreadBps, 0) + " bps") },
   { head: "Cost % of par", cell: (r) => (r.costPctPar === null ? null : fixed(r.costPctPar, 2)) },
   { head: "FV % of cost", cell: (r) => (r.fvPctCost === null ? null : fixed(r.fvPctCost, 2)) },
   { head: "Floor", cell: (r) => (r.floorBps === null ? null : fixed(r.floorBps, 0) + " bps") },

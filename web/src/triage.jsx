@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { Card, CardLabel, DotPlot, EmptyState, EvidenceTable, ExposureTag, FLAG_STATUS, HistoryStrip, inputClass, inputStyle, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, SourceLink, StatusPill, useFetch } from "./components.jsx";
-import { FLAG_TEXT, points, spreadRange, typeName, usd } from "./format.js";
+import { Card, CardLabel, EmptyState, EvidenceTable, ExposureTag, FLAG_STATUS, HistoryStrip, inputClass, inputStyle, LenderValueBars, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, SourceLink, StatusPill, useFetch } from "./components.jsx";
+import { FLAG_TEXT, points, spreadRange, typeName } from "./format.js";
 import { useDebounced } from "./pages.jsx";
 
 // The only flag and sort values CONTRACT.md's E4 accepts. "All" sends no flag parameter at all.
@@ -115,9 +115,14 @@ export function TriagePage() {
 
 // ------------------------------------------------------------------ 4.5 Facility comparison
 const VALUE_HEADLINE = {
-  AGREEMENT: "Lenders are in agreement",
+  AGREEMENT: "Lenders agree",
   MILD: "Lenders show a mild difference",
-  FLAGGED: "Lenders show a large difference",
+  FLAGGED: "Lenders disagree",
+};
+const VALUE_EXPLAIN = {
+  AGREEMENT: "The lenders' reported values are very close.",
+  MILD: "The lenders' reported values differ somewhat.",
+  FLAGGED: "The lenders' reported values differ significantly.",
 };
 
 export function ComparisonPage() {
@@ -139,7 +144,6 @@ export function ComparisonPage() {
         {(c) => {
           const hist = c.history;
           const priorBy = new Map(hist?.rows.map((r) => [r.bdcName, r.priorFairValuePctPar]) ?? []);
-          const minPrincipal = Math.min(...c.rows.map((r) => Number(r.principal)));
           const status = FLAG_STATUS[c.divergenceFlag] ?? { fg: "var(--color-text)", bg: "var(--color-border)" };
           return (
             <div className="space-y-6">
@@ -155,12 +159,13 @@ export function ComparisonPage() {
 
               <div className="card-shadow rounded-[var(--radius-card)] border p-6" style={{ borderColor: "var(--color-border-strong)", background: status.bg }}>
                 <CardLabel>Value check</CardLabel>
-                <p className="text-xl font-bold" style={{ color: status.fg }}>{VALUE_HEADLINE[c.divergenceFlag] ?? FLAG_TEXT[c.divergenceFlag]}</p>
-                <p className="mt-4 text-3xl font-bold" style={{ color: "var(--color-text)" }}>{usd(String(minPrincipal))}</p>
-                <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Loan amount (lowest reported principal)</p>
-                <p className="mt-4 text-sm" style={{ color: "var(--color-text-secondary)" }}>Difference between lenders: {points(c.divergencePts)} points</p>
-                <p className="mt-3"><StatusPill flag={c.divergenceFlag} /></p>
-                <p className="mt-4 text-xs" style={{ color: "var(--color-text-muted)" }}>Exposure (ranking key, not an estimate of loss): {usd(c.exposureUsd)}</p>
+                <p className="flex items-center gap-2 text-xl font-bold" style={{ color: status.fg }}>
+                  <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: status.dot }} />
+                  {VALUE_HEADLINE[c.divergenceFlag] ?? FLAG_TEXT[c.divergenceFlag]}
+                </p>
+                <p className="mt-5 text-sm" style={{ color: "var(--color-text-secondary)" }}>Difference between reported values</p>
+                <p className="mt-1 text-3xl font-bold" style={{ color: "var(--color-text)" }}>{points(c.divergencePts)} points</p>
+                <p className="mt-3 text-sm" style={{ color: "var(--color-text-secondary)" }}>{VALUE_EXPLAIN[c.divergenceFlag] ?? ""}</p>
               </div>
 
               {c.signals.length > 0 && (
@@ -171,41 +176,13 @@ export function ComparisonPage() {
               )}
 
               <Card>
-                <CardLabel>Lender reports</CardLabel>
-                <EvidenceTable rows={c.rows} />
-                {c.excludedCount > 0 && (
-                  <p className="mt-3 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-                    Note: {c.excludedCount} {c.excludedCount === 1 ? "holding is" : "holdings are"} excluded because {c.excludedCount === 1 ? "it has" : "they have"} no usable mark.
-                  </p>
-                )}
+                <CardLabel>Current value reported by each lender</CardLabel>
+                <LenderValueBars rows={c.rows.map((r) => ({ label: r.bdcName, value: Number(r.fairValuePctPar) }))} />
+                <p className="mt-4 text-sm" style={{ color: "var(--color-text-secondary)" }}>Difference: {points(c.divergencePts)} percentage points</p>
               </Card>
 
               <Card>
-                <CardLabel>How different are the values?</CardLabel>
-                <DotPlot rows={c.rows.map((r) => ({ label: r.bdcName.split(" ")[0], value: Number(r.fairValuePctPar) }))} />
-              </Card>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Card>
-                  <CardLabel>Loan type</CardLabel>
-                  <p className="text-sm" style={{ color: "var(--color-text)" }}>{typeName(c.instrumentType)}</p>
-                  <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
-                    <CardLabel>Interest rate</CardLabel>
-                    <p className="text-sm" style={{ color: "var(--color-text)" }}>{c.referenceRate ?? "Reference rate not disclosed"}</p>
-                  </div>
-                </Card>
-                <Card>
-                  <CardLabel>Maturity</CardLabel>
-                  <p className="text-sm" style={{ color: "var(--color-text)" }}>{c.maturityBucket ?? "Not disclosed"}</p>
-                  <div className="mt-4 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
-                    <CardLabel>Reporting period</CardLabel>
-                    <p className="text-sm" style={{ color: "var(--color-text)" }}>{c.periodEnd}</p>
-                  </div>
-                </Card>
-              </div>
-
-              <Card>
-                <CardLabel>History</CardLabel>
+                <CardLabel>How the reported values changed</CardLabel>
                 {hist === null ? (
                   <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Not yet measured</p>
                 ) : (
@@ -220,7 +197,40 @@ export function ComparisonPage() {
                     <p className="mt-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
                       {hist.priorDivergencePts === null ? `Fewer than 2 lenders have a linked mark on ${hist.priorPeriodEnd}, so there is no prior gap.` : `Gap on ${hist.priorPeriodEnd}: ${points(hist.priorDivergencePts)} points, ${FLAG_TEXT[hist.priorDivergenceFlag ?? ""] ?? ""}.`}
                     </p>
+                    <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>Only two reporting periods are available.</p>
                   </>
+                )}
+              </Card>
+
+              <Card>
+                <CardLabel>Loan details</CardLabel>
+                <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Loan type</p>
+                    <p className="mt-0.5 text-sm" style={{ color: "var(--color-text)" }}>{typeName(c.instrumentType)}</p>
+                  </div>
+                  <div className="border-t pt-4 sm:border-t-0 sm:pt-0" style={{ borderColor: "var(--color-border)" }}>
+                    <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Interest rate</p>
+                    <p className="mt-0.5 text-sm" style={{ color: "var(--color-text)" }}>{c.referenceRate ?? "Reference rate not disclosed"}</p>
+                  </div>
+                  <div className="border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+                    <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Maturity</p>
+                    <p className="mt-0.5 text-sm" style={{ color: "var(--color-text)" }}>{c.maturityBucket ?? "Not disclosed"}</p>
+                  </div>
+                  <div className="border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+                    <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>Reporting period</p>
+                    <p className="mt-0.5 text-sm" style={{ color: "var(--color-text)" }}>{c.periodEnd}</p>
+                  </div>
+                </div>
+              </Card>
+
+              <Card>
+                <CardLabel>Lender reports</CardLabel>
+                <EvidenceTable rows={c.rows} />
+                {c.excludedCount > 0 && (
+                  <p className="mt-3 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                    Note: {c.excludedCount} {c.excludedCount === 1 ? "holding is" : "holdings are"} excluded because {c.excludedCount === 1 ? "it has" : "they have"} no usable mark.
+                  </p>
                 )}
               </Card>
 
