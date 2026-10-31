@@ -15,9 +15,15 @@ One line per file. Matcher files are frozen (see DECISIONS.md): normalize.py, bl
 - docs/run_times.jsonl: one line per block, match or compare run.
 - docs/day1_notes.md, day2_notes.md, day4_notes.md: notes from those days.
 - docs/blocking_recall_worksheet.md: the 30 holdings for the independent blocking recall check (no counterparts listed).
-- docs/history_link_worksheet.md: 30 history links for the hand check.
+- docs/history_link_worksheet.md: 30 history links with both quarters side by side.
+- docs/blocking_recall_decisions.md: the decision for each of the 30 drawn holdings (first pass, revision, and a follow up on four NONE rows), by an AI assistant.
+- docs/history_link_decisions.md: the label and reason for each of the 30 checked history links, by an AI assistant.
+- docs/spot_check_sheet.md: 10 displayed rows with filing references and an automated text check; the owner column is for a person.
+- docs/diff_reading_order.md: the files changed since commit 73bc5d2 in reading order.
+- docs/spec_test_matrix.md and docs/spec_test_matrix.py: SPEC tests 1 to 38 mapped to test names.
+- docs/project_closure.md: what is done, what was verified and how, known limits and deployment readiness.
 - docs/overnight_log.md and docs/overnight_report.md: the log and final report of the autonomous overnight run.
-- docs/FILE_GUIDE.md: this file. docs/demo_script.md: steps for recording the demo.
+- docs/FILE_GUIDE.md: this file. docs/demo_script.md: the demo script (recording is out of scope for now).
 - docs/screens/: headless Chrome screenshots of each page against the live API.
 
 ## Pipeline (`pipeline/`, run as `python -m pipeline.<module>`)

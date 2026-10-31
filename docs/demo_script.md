@@ -1,5 +1,7 @@
 # Demo script
 
+Demo recording is out of scope for now, because deployment is the next stage. This file is kept as the script to use when a recording is made, and its numbers were checked against the live stack on 2026-10-31.
+
 About 6 minutes. Record the browser at http://localhost:8080 after `docker compose up`. Say only what the screen shows. Do not claim anything the README does not.
 
 ## Before recording
@@ -19,11 +21,11 @@ Every number on screen still comes straight from the API, read exactly as CONTRA
 6. Decisions (/decisions). Show the decision log this browser has recorded this session: Confirmed, Rejected and "Left as is" (the Group issue "Same" action) counts and a table of each decision. Say plainly that this is a session-only, in-browser log, not a database table: it starts empty on every reload and there is no server endpoint that lists past decisions.
 7. Metrics (/metrics). Start with the compact dashboard: Match quality, Found matches, Search found and Labelled cases tiles, plus the Matching performance and "Where the system finds matches" charts. Click "Show full statistical detail" to reveal the full breakdown: AUTO only precision shown three ways with its interval and a low-to-high range bar, the REVIEW band as "1 of 5" counts, the out of time check as its own separate section, evidence signals, the unexplained share (8 of 12), field coverage and the divergence sensitivity table.
 8. Filings (/filings). Show the Filings table, the Filings coverage matrix (lender by quarter) and the Latest filings list, then click a row to show its detail card and the SEC filing link. The three 2026-03-31 filings carry the tag "Outside measured quarter".
-9. In the README, show the Evaluation section, the sensitivity note and the limits (282 of 283 AUTO pairs have equal normalized names; blocking recall is not yet measured). Open DECISIONS.md section 24 and read the provenance lines as they are written.
+9. In the README, show the Evaluation section, the sensitivity note and the limits (282 of 283 AUTO pairs have equal normalized names; blocking recall is 6 of 8 on 8 recorded pairs, 75.0% with a 95% Wilson interval of 40.9% to 92.9%, split Tier A 2 of 2 and Tier B 4 of 6, and all of it identified by an AI assistant, not by hand, so say it is weak evidence). Open DECISIONS.md section 24 and read the provenance lines as they are written.
 
 ## Things not to say
 - That anything explains a gap, or that the project reproduces Apollo's valuation.
 - A precision that includes review queue confirmations.
 - That ERC is confirmed as the same tranche, or that its exposure is reliable.
-- That blocking recall was measured, until you have finished the hand check and run `--finalize`.
+- That blocking recall is strong evidence (n is 8), or that the blocking recall and history link checks were done by hand: they were done by an AI assistant.
 - That the Decisions page is a database record, or that a Group issue "Same" sends a write to the server.

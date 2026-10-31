@@ -62,7 +62,7 @@ Re-run on the ingested raw_holdings (funded rows only). Name match: lowercase, p
 | candidate_pairs (all statuses) | 313 |
 | candidate_share | 0.000212 |
 | pairs_avoided_pct | 99.9788 |
-| blocking recall (independent 30 holding check) | Not yet measured (the hand check is not finalized) |
+| blocking recall (independent 30 holding check) | 6 of 8 recorded counterpart pairs were put in one block |
 
 all_pairs is the sum of n_i * n_j over BDC pairs in the measured period, from per-BDC counts. Pairs avoided is never quoted without blocking recall. Report only: never retuned, never in the API or metric_results.
 
@@ -78,7 +78,7 @@ Median of the last 3 runs on the measured quarter, wall clock, including Python 
 ## 8. Machine
 | Item | Value |
 |---|---|
-| OS | Windows-10-10.0.26200-SP0 |
+| OS | Windows-10-10.0.26300-SP0 |
 | CPU | Intel64 Family 6 Model 151 Stepping 2, GenuineIntel |
 | Logical CPUs | 12 |
 | RAM | 15.7 GB |

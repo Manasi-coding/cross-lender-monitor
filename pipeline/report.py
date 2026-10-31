@@ -260,7 +260,7 @@ def section_machine() -> str:
 def section_blocking(conn, period) -> str:
     e = efficiency(conn, period)
     n, found = conn.execute("SELECT count(*), count(*) FILTER (WHERE found_by_blocking) FROM blocking_recall_checks").fetchone()
-    recall = f"{found} of {n} hand-found pairs were put in one block" if n else "Not yet measured (the hand check is not finalized)"
+    recall = f"{found} of {n} recorded counterpart pairs were put in one block" if n else "Not yet measured (the hand check is not finalized)"
     rows = [["holdings per BDC", ", ".join(str(c) for c in e["holdings_per_bdc"])], ["all_pairs", e["all_pairs"]],
             ["candidate_pairs (all statuses)", e["candidate_pairs"]], ["candidate_share", f"{e['candidate_share']:.6f}"],
             ["pairs_avoided_pct", f"{e['pairs_avoided_pct']:.4f}"], ["blocking recall (independent 30 holding check)", recall]]
