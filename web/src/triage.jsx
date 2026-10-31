@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
 import { BarList, Card, CardLabel, EmptyState, LenderValueBars, Load, PeriodTag, StatCard, StatusDot, StatusPill, useFetch } from "./components.jsx";
-import { fixed, NOT_YET, points, SIGNAL_TEXT, typeName, usd } from "./format.js";
+import { fixed, points, SIGNAL_TEXT, typeName, usd } from "./format.js";
 
 // Buckets of divergencePts, a field E4 already returns for every facility. Purely a client-side
 // grouping of an existing number into fixed ranges, the same style as E9's own sensitivity
@@ -37,9 +37,6 @@ export function TriagePage() {
     <>
       <div className="mb-4">
         <h1 className="text-2xl font-bold uppercase tracking-wide" style={{ color: "var(--color-text)" }}>Facilities</h1>
-        <p className="mt-0.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-          Loans reported by the monitored lenders &middot; Reporting period: {overview?.measuredPeriodEnd ?? NOT_YET}
-        </p>
       </div>
 
       <Load f={f}>
