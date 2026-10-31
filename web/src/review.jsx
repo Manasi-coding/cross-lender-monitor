@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiFailure, getJson, postJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { BarList, Card, CardLabel, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, Toast, useFetch } from "./components.jsx";
+import { Card, CardLabel, EmptyState, Load, PageTitle, PeriodTag, SourceLink, StatCard, Toast, useFetch } from "./components.jsx";
 import { bps, fixed, typeName } from "./format.js";
 // 4.6 Review queue. The score is shown here (it is hidden only on the labeling page), and only
 // inside each case's "Technical details" toggle on this page's default plain-language view.
@@ -20,8 +20,14 @@ export function ReviewPage() {
   // A running count of decisions made this browser session (resets on reload); the API has no
   // "completed" concept of its own, since a decided pair simply drops out of the REVIEW queue.
   const [completed, setCompleted] = useState(0);
+  // The queue size the first time it was fetched this session, so "To review" stays fixed while
+  // "Remaining" (the live fetch) counts down as decisions are made.
+  const [initialTotal, setInitialTotal] = useState(null);
 
   useEffect(() => setCurrent(0), [version]);
+  useEffect(() => {
+    if (f.state === "ready" && initialTotal === null) setInitialTotal(f.data.length);
+  }, [f, initialTotal]);
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2600);
@@ -69,16 +75,9 @@ export function ReviewPage() {
           const idx = Math.min(current, Math.max(0, items.length - 1));
           const primary = items[idx];
 
-          // Match quality: the pending possible-match cases grouped by their real score (the same
-          // thresholds LikelihoodBar colours by). Clusters have no score, so this covers pairs only.
-          const tiers = { high: 0, medium: 0, low: 0 };
-          for (const p of matches) {
-            const pct = Math.round(Number(p.score) * 100);
-            if (pct >= 88) tiers.high += 1;
-            else if (pct >= 84) tiers.medium += 1;
-            else tiers.low += 1;
-          }
-          const tierPct = (n) => (matches.length === 0 ? 0 : Math.round((n / matches.length) * 100));
+          const toReview = initialTotal ?? items.length;
+          const pct = (n) => (toReview === 0 ? 0 : Math.round((n / toReview) * 100));
+          const reviewedPct = toReview === 0 ? 0 : Math.round((completed / toReview) * 100);
 
           return (
             <>
@@ -91,43 +90,46 @@ export function ReviewPage() {
 
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <Card compact>
-                  <CardLabel>Review status</CardLabel>
-                  <BarList
-                    compact
-                    rows={[
-                      { label: "Possible match", value: matches.length, color: "var(--color-chart-green)" },
-                      { label: "Group issue", value: groups.length, color: "var(--color-chart-red)" },
-                    ]}
-                  />
+                  <CardLabel>Review queue</CardLabel>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{items.length} {items.length === 1 ? "case needs" : "cases need"} review</p>
+                  <div className="mt-3 space-y-2.5">
+                    {[
+                      ["Possible match", matches.length, "var(--color-chart-green)"],
+                      ["Group issue", groups.length, "var(--color-chart-red)"],
+                    ].map(([label, n, color]) => (
+                      <div key={label}>
+                        <div className="mb-1 flex items-center justify-between text-sm">
+                          <span style={{ color: "var(--color-text-secondary)" }}>{label}</span>
+                          <span className="font-semibold" style={{ color: "var(--color-text)" }}>{n}</span>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+                          <div className="h-full rounded-full" style={{ width: `${pct(n)}%`, background: color }} />
+                        </div>
+                        <p className="mt-0.5 text-right text-xs" style={{ color: "var(--color-text-secondary)" }}>{pct(n)}%</p>
+                      </div>
+                    ))}
+                  </div>
                 </Card>
                 <Card compact>
-                  <CardLabel>Match quality</CardLabel>
-                  {matches.length === 0 ? (
-                    <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>No possible matches waiting.</p>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-3 gap-2 text-center text-sm">
-                        <div>
-                          <p style={{ color: "var(--color-text-secondary)" }}>High</p>
-                          <p className="text-lg font-bold" style={{ color: "var(--color-chart-green)" }}>{tierPct(tiers.high)}%</p>
-                        </div>
-                        <div>
-                          <p style={{ color: "var(--color-text-secondary)" }}>Medium</p>
-                          <p className="text-lg font-bold" style={{ color: "var(--color-chart-yellow)" }}>{tierPct(tiers.medium)}%</p>
-                        </div>
-                        <div>
-                          <p style={{ color: "var(--color-text-secondary)" }}>Low</p>
-                          <p className="text-lg font-bold" style={{ color: "var(--color-chart-red)" }}>{tierPct(tiers.low)}%</p>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex h-3 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
-                        {tiers.high > 0 && <div style={{ width: `${tierPct(tiers.high)}%`, background: "var(--color-chart-green)" }} />}
-                        {tiers.medium > 0 && <div style={{ width: `${tierPct(tiers.medium)}%`, background: "var(--color-chart-yellow)" }} />}
-                        {tiers.low > 0 && <div style={{ width: `${tierPct(tiers.low)}%`, background: "var(--color-chart-red)" }} />}
-                      </div>
-                      <p className="mt-2 text-xs" style={{ color: "var(--color-text-secondary)" }}>How possible matches are distributed by confidence</p>
-                    </>
-                  )}
+                  <CardLabel>Review progress</CardLabel>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-xl font-bold" style={{ color: "var(--color-text)" }}>{toReview}</p>
+                      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>To review</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold" style={{ color: "var(--color-chart-green)" }}>{completed}</p>
+                      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Completed</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold" style={{ color: "var(--color-text)" }}>{items.length}</p>
+                      <p className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Remaining</p>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${reviewedPct}%`, background: "var(--color-chart-green)" }} />
+                  </div>
+                  <p className="mt-1.5 text-center text-xs" style={{ color: "var(--color-text-secondary)" }}>{reviewedPct}% reviewed</p>
                 </Card>
               </div>
 
