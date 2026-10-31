@@ -1,17 +1,18 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router";
 import { getJson } from "./api.js";
+import { Icon } from "./components.jsx";
 
 const Ctx = createContext({ overview: null, refresh: () => {} });
 export const useShared = () => useContext(Ctx);
 
 const NAV = [
-  ["/", "Overview"],
-  ["/borrowers", "Borrowers"],
-  ["/facilities", "Triage"],
-  ["/review", "Review"],
-  ["/metrics", "Metrics"],
-  ["/filings", "Filings"],
+  ["/", "Overview", "grid"],
+  ["/borrowers", "Borrowers", "layers"],
+  ["/facilities", "Triage", "chart"],
+  ["/review", "Review", "search"],
+  ["/metrics", "Metrics", "check"],
+  ["/filings", "Filings", "doc"],
 ];
 
 function readTheme() {
@@ -62,11 +63,16 @@ export default function App() {
           style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}
           aria-label="Main"
         >
-          <p className="mb-6 text-sm font-bold uppercase tracking-wide leading-tight" style={{ color: "var(--color-text)" }}>
-            Valuation<br />Monitor
-          </p>
+          <div className="mb-6 flex items-center gap-2.5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl" style={{ background: "var(--color-brand)", color: "#ffffff" }}>
+              <Icon name="layers" size={18} />
+            </span>
+            <p className="text-sm font-bold uppercase tracking-wide leading-tight" style={{ color: "var(--color-text)" }}>
+              Valuation<br />Monitor
+            </p>
+          </div>
           <ul className="flex flex-wrap gap-1.5 md:block md:space-y-1">
-            {NAV.map(([to, label]) => (
+            {NAV.map(([to, label, icon]) => (
               <li key={to}>
                 <NavLink
                   to={to}
@@ -81,7 +87,10 @@ export default function App() {
                     background: isActive ? "var(--color-brand-light)" : "transparent",
                   })}
                 >
-                  <span>{label}</span>
+                  <span className="flex items-center gap-2.5">
+                    <Icon name={icon} size={17} />
+                    {label}
+                  </span>
                   {label === "Review" && overview && overview.pendingReviewCount > 0 && (
                     <span
                       className="rounded-full px-1.5 py-0.5 text-xs font-semibold"

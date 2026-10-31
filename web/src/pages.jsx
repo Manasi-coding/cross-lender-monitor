@@ -5,8 +5,10 @@ import { useShared } from "./App.jsx";
 import {
   Card,
   CardLabel,
-  DivergenceSplitChart,
+  DivergenceDonut,
   EmptyState,
+  HeroCard,
+  HeroLink,
   inputClass,
   inputStyle,
   Load,
@@ -55,30 +57,43 @@ export function OverviewPage() {
 
   return (
     <>
-      <PageTitle
-        sub={
+      <PageTitle sub="What is happening across the monitored lenders">Overview</PageTitle>
+
+      <HeroCard
+        eyebrow={`Measured quarter · ${o.measuredPeriodEnd}`}
+        title={`${o.facilityCount} facilities are being tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`}
+        subtitle={
+          s
+            ? `${s.flagged} ${s.flagged === 1 ? "case needs" : "cases need"} a closer look, with ${usd(o.flaggedExposureUsd)} of flagged exposure in total.`
+            : "Divergence has not been measured yet for this quarter."
+        }
+        actions={
           <>
-            {o.measuredPeriodEnd} &nbsp;&middot;&nbsp; {o.bdcCount} {o.bdcCount === 1 ? "lender" : "lenders"} &nbsp;&middot;&nbsp;{" "}
-            {o.facilityCount} {o.facilityCount === 1 ? "facility" : "facilities"}
+            <HeroLink to="/borrowers">Browse borrowers</HeroLink>
+            <HeroLink to="/review">Review queue ({o.pendingReviewCount})</HeroLink>
           </>
         }
-      >
-        Overview
-      </PageTitle>
-      <p className="mb-6 text-sm" style={{ color: "var(--color-text-secondary)" }}>What is happening across the monitored lenders</p>
+      />
 
-      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Facilities" value={o.facilityCount} to="/facilities" note={`Across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`} />
-        <StatCard label="Need review" value={o.pendingReviewCount} to="/review" note="Need a closer look" />
-        <StatCard label="Flagged exposure" value={usd(o.flaggedExposureUsd)} to="/facilities" note="Ranking key, not loss" />
-        <StatCard label="Agreement" value={agreementShare} to="/metrics" note="Valuations are close" />
+      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          label="Facilities"
+          value={o.facilityCount}
+          to="/facilities"
+          note={`Across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`}
+          tone="neutral"
+          icon="layers"
+        />
+        <StatCard label="Need review" value={o.pendingReviewCount} to="/review" note="Need a closer look" tone="review" icon="search" />
+        <StatCard label="Flagged exposure" value={usd(o.flaggedExposureUsd)} to="/facilities" note="Ranking key, not loss" tone="flagged" icon="flag" />
+        <StatCard label="Agreement" value={agreementShare} to="/metrics" note="Valuations are close" tone="brand" icon="check" />
       </div>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
         <Card>
           <CardLabel>Valuation differences</CardLabel>
           {s ? (
-            <DivergenceSplitChart agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
+            <DivergenceDonut agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
           ) : (
             <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
           )}
@@ -122,7 +137,7 @@ export function OverviewPage() {
                     </thead>
                     <tbody>
                       {topCases.map((r) => (
-                        <tr key={r.facilityId} className="border-t" style={{ borderColor: "var(--color-border)" }}>
+                        <tr key={r.facilityId} className="table-row-hover border-t transition-colors" style={{ borderColor: "var(--color-border)" }}>
                           <td className="py-2.5 pr-4">
                             <Link to={`/facilities/${r.facilityId}`} className="font-medium hover:underline" style={{ color: "var(--color-text)" }}>
                               {r.borrowerName}

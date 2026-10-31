@@ -80,13 +80,114 @@ export function CardLabel({ children }) {
   return <p className="mb-3 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{children}</p>;
 }
 
-export function StatCard({ label, value, to, note }) {
+// Minimal hand-drawn icon set, 20x20, stroke-based, one colour (currentColor). No icon library dependency.
+const ICON_PATHS = {
+  layers: "M10 2 2 6l8 4 8-4-8-4ZM2 10l8 4 8-4M2 14l8 4 8-4",
+  flag: "M4 17V3m0 2h11l-2.5 3L15 11H4",
+  alert: "M10 2 2 17h16L10 2ZM10 8v4m0 3h.01",
+  check: "M3 10.5 8 15l9-10.5",
+  chart: "M3 17V8m5 9V3m5 14v-6m5 6V6",
+  search: "M9 16a7 7 0 1 0 0-14 7 7 0 0 0 0 14ZM18 18l-4-4",
+  doc: "M5 2h7l4 4v12H5V2Zm7 0v4h4",
+  grid: "M3 3h6v6H3V3Zm8 0h6v6h-6V3ZM3 11h6v6H3v-6Zm8 0h6v6h-6v-6Z",
+};
+
+export function Icon({ name, size = 18, className = "" }) {
+  const d = ICON_PATHS[name];
+  if (!d) return null;
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d={d} />
+    </svg>
+  );
+}
+
+// Tone drives the tinted icon badge colour. "neutral" uses the brand colour at low intensity.
+const TONE = {
+  neutral: { bg: "var(--color-brand-light)", fg: "var(--color-brand-dark)" },
+  brand: { bg: "var(--color-brand-light)", fg: "var(--color-brand-dark)" },
+  review: { bg: "var(--color-review-light)", fg: "var(--color-review)" },
+  flagged: { bg: "var(--color-flagged-light)", fg: "var(--color-flagged)" },
+};
+
+export function StatCard({ label, value, to, note, tone = "neutral", icon }) {
+  const t = TONE[tone] ?? TONE.neutral;
   return (
     <Card to={to}>
-      <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{label}</p>
-      <p className="mt-2 text-[28px] font-bold leading-none" style={{ color: "var(--color-text)" }}>{value}</p>
-      {note && <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{note}</p>}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{label}</p>
+          <p className="mt-2 text-[28px] font-bold leading-none" style={{ color: "var(--color-text)" }}>{value}</p>
+          {note && <p className="mt-1.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>{note}</p>}
+        </div>
+        {icon && (
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full" style={{ background: t.bg, color: t.fg }}>
+            <Icon name={icon} />
+          </span>
+        )}
+      </div>
     </Card>
+  );
+}
+
+// A gradient banner card for the page's headline figure, with pill CTAs. Content is caller-supplied real data only.
+export function HeroCard({ eyebrow, title, subtitle, actions }) {
+  return (
+    <div className="gradient-hero card-shadow rounded-[var(--radius-card)] p-6 text-white sm:p-7">
+      {eyebrow && <p className="text-xs font-semibold uppercase tracking-wide text-white/75">{eyebrow}</p>}
+      <p className="mt-2 text-2xl font-bold leading-snug sm:text-[28px]">{title}</p>
+      {subtitle && <p className="mt-2 max-w-xl text-sm text-white/85">{subtitle}</p>}
+      {actions && <div className="mt-5 flex flex-wrap gap-2.5">{actions}</div>}
+    </div>
+  );
+}
+
+export function HeroLink({ to, children }) {
+  return (
+    <Link
+      to={to}
+      className="rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/25"
+    >
+      {children}
+    </Link>
+  );
+}
+
+// A small donut built from the three divergence flags, same colours as every other status element.
+export function DivergenceDonut({ agreement, mild, flagged }) {
+  const total = agreement + mild + flagged;
+  const r = 15.9155;
+  const c = 2 * Math.PI * r;
+  const segs = [
+    ["AGREEMENT", agreement, "var(--color-brand)"],
+    ["MILD", mild, "var(--color-review)"],
+    ["FLAGGED", flagged, "var(--color-flagged)"],
+  ];
+  let offset = 0;
+  return (
+    <div className="flex items-center gap-5">
+      <svg viewBox="0 0 36 36" className="h-28 w-28 shrink-0 -rotate-90" role="img" aria-label="Share of facilities by agreement status">
+        <circle cx="18" cy="18" r={r} fill="none" stroke="var(--color-border)" strokeWidth="4" />
+        {total > 0 &&
+          segs.map(([name, n, color]) => {
+            if (n === 0) return null;
+            const frac = n / total;
+            const dash = `${frac * c} ${c - frac * c}`;
+            const el = <circle key={name} cx="18" cy="18" r={r} fill="none" stroke={color} strokeWidth="4" strokeDasharray={dash} strokeDashoffset={-offset} strokeLinecap="butt" />;
+            offset += frac * c;
+            return el;
+          })}
+      </svg>
+      <div className="space-y-2 text-sm">
+        {segs.map(([name, n, color]) => (
+          <div key={name} className="flex items-center gap-2">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+            <span style={{ color: "var(--color-text-secondary)" }}>{FLAG_TEXT[name]}</span>
+            <span className="font-semibold" style={{ color: "var(--color-text)" }}>{n}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

@@ -60,7 +60,15 @@ input:focus-visible {
 }
 
 .card-shadow {
-  box-shadow: 0 1px 2px rgba(23, 32, 51, 0.04);
+  box-shadow: 0 1px 2px rgba(23, 32, 51, 0.05), 0 8px 20px -14px rgba(23, 32, 51, 0.18);
+}
+
+.gradient-hero {
+  background: linear-gradient(135deg, var(--color-brand) 0%, var(--color-brand-dark) 100%);
+}
+
+.table-row-hover:hover {
+  background: var(--color-brand-light);
 }
 
 .btn-secondary {
