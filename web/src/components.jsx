@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiFailure } from "./api.js";
 import { FLAG_TEXT, NOT_DISCLOSED, NOT_YET, PERSISTENCE_TEXT, SIGNAL_TEXT, fixed, pct, usd } from "./format.js";
@@ -547,21 +547,27 @@ export function DotPlot({ rows }) {
 export function LenderValueBars({ rows }) {
   const [lo, hi] = range(rows.map((r) => r.value));
   const pad = Math.max((hi - lo) * 0.4, 0.3);
-  const axisMin = lo - pad, axisMax = hi + pad;
+  const axisMin = Math.max(0, lo - pad), axisMax = Math.min(100, hi + pad);
   const widthPct = (v) => ((v - axisMin) / (axisMax - axisMin)) * 100;
   return (
-    <div className="space-y-3">
-      {rows.map((r, i) => (
-        <div key={r.label}>
-          <div className="mb-1 flex items-center justify-between text-sm">
-            <span className="font-medium" style={{ color: "var(--color-text)" }}>{r.label}</span>
-            <span className="font-semibold" style={{ color: "var(--color-text)" }}>{r.value.toFixed(2)}%</span>
+    <div>
+      <div className="space-y-3">
+        {rows.map((r, i) => (
+          <div key={r.label}>
+            <div className="mb-1 flex items-center justify-between text-sm">
+              <span className="font-medium" style={{ color: "var(--color-text)" }}>{r.label}</span>
+              <span className="font-semibold" style={{ color: "var(--color-text)" }}>{r.value.toFixed(2)}%</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+              <div className="h-full rounded-full" style={{ width: `${widthPct(r.value)}%`, background: DOT_COLORS[i % DOT_COLORS.length] }} />
+            </div>
           </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
-            <div className="h-full rounded-full" style={{ width: `${widthPct(r.value)}%`, background: DOT_COLORS[i % DOT_COLORS.length] }} />
-          </div>
-        </div>
-      ))}
+        ))}
+      </div>
+      <div className="mt-2 flex justify-between text-xs" style={{ color: "var(--color-text-muted)" }}>
+        <span>{axisMin.toFixed(1)}%</span>
+        <span>{axisMax.toFixed(1)}%</span>
+      </div>
     </div>
   );
 }
@@ -592,48 +598,30 @@ export function HistoryStrip({ rows, persistence }) {
   );
 }
 
-// Only the loan amount is in the default row; reported value and spread live in the chart above
-// the table, so the table does not repeat them. Everything else is behind the row's expand toggle.
-const CORE_COLS = [
-  { head: "Loan amount", key: "principal", cell: (r) => usd(r.principal), sort: (r) => Number(r.principal) },
-];
-const DOSSIER_COLS = [
+// Fields always shown on a lender card, plain language per CONTRACT's own field names.
+const CORE_FIELDS = [
+  { head: "Loan amount", cell: (r) => usd(r.principal) },
   { head: "Reported value", cell: (r) => fixed(r.fairValuePctPar, 2) + "%" },
+  { head: "Maturity", cell: (r) => r.maturityDate },
   { head: "Spread", cell: (r) => (r.spreadBps === null ? null : fixed(r.spreadBps, 0) + " bps") },
+];
+// Behind each card's expand toggle: the rest of the evidence dossier E5 already returns.
+const DOSSIER_FIELDS = [
   { head: "Cost % of par", cell: (r) => (r.costPctPar === null ? null : fixed(r.costPctPar, 2)) },
   { head: "FV % of cost", cell: (r) => (r.fvPctCost === null ? null : fixed(r.fvPctCost, 2)) },
   { head: "Floor", cell: (r) => (r.floorBps === null ? null : fixed(r.floorBps, 0) + " bps") },
   { head: "PIK", cell: (r) => (r.pikBps === null ? null : fixed(r.pikBps, 0) + " bps") },
-  { head: "Maturity", cell: (r) => r.maturityDate },
   { head: "Non accrual", cell: (r) => (r.nonAccrual === null ? null : r.nonAccrual ? "Yes" : "No") },
 ];
 
-// The lender table: BDC, spread, FV % of par and principal are always visible and sortable (client
-// side only, over the rows E5 already returned). Each row expands to show the dossier fields E5
-// already includes (costPctPar, fvPctCost, floorBps, pikBps, maturityDate, nonAccrual). A null
-// dossier cell reads "Not disclosed", per CONTRACT.md's dossier null exception. A column whose
-// disclosed values differ across lenders is marked "differs".
+// One card per lender, the same fields and "Not disclosed"/"differs" rules the old table used, laid
+// out as cards (reads naturally for the common 2-3 lender case). Each card expands to the rest of
+// the evidence dossier E5 already returns; nothing here is a new field or a new request.
 export function EvidenceTable({ rows }) {
-  const [sortKey, setSortKey] = useState(null);
-  const [sortDir, setSortDir] = useState(1);
   const [expanded, setExpanded] = useState(() => new Set());
+  const differs = DOSSIER_FIELDS.map((c) => new Set(rows.map(c.cell).filter((v) => v !== null)).size > 1);
 
-  const differs = DOSSIER_COLS.map((c) => new Set(rows.map(c.cell).filter((v) => v !== null)).size > 1);
-
-  const sorted = [...rows];
-  if (sortKey) {
-    const col = CORE_COLS.find((c) => c.key === sortKey);
-    sorted.sort((a, b) => (col.sort(a) - col.sort(b)) * sortDir);
-  }
-
-  const toggleSort = (key) => {
-    if (sortKey === key) setSortDir((d) => -d);
-    else {
-      setSortKey(key);
-      setSortDir(1);
-    }
-  };
-  const toggleRow = (id) => {
+  const toggle = (id) => {
     setExpanded((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -643,75 +631,45 @@ export function EvidenceTable({ rows }) {
   };
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr style={{ color: "var(--color-text-secondary)" }}>
-            <th className="w-8 py-2 pr-2" />
-            <th className="py-2 pr-4 font-medium">BDC</th>
-            {CORE_COLS.map((c) => (
-              <th key={c.key} className="py-2 pr-4 font-medium">
-                <button type="button" className="flex items-center gap-1 hover:underline focus-visible:underline" style={{ color: "inherit" }} onClick={() => toggleSort(c.key)} aria-label={`Sort by ${c.head}`}>
-                  {c.head}
-                  {sortKey === c.key && <span aria-hidden="true">{sortDir === 1 ? "↑" : "↓"}</span>}
-                </button>
-              </th>
-            ))}
-            <th className="py-2 pr-4 font-medium">Source</th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => {
-            const id = r.bdcName + r.sourceUrl;
-            const isOpen = expanded.has(id);
-            return (
-              <Fragment key={id}>
-                <tr className="table-row-hover border-t transition-colors" style={{ borderColor: "var(--color-border)" }}>
-                  <td className="py-2 pr-2">
-                    <button
-                      type="button"
-                      onClick={() => toggleRow(id)}
-                      aria-expanded={isOpen}
-                      aria-label={isOpen ? `Hide evidence dossier for ${r.bdcName}` : `Show evidence dossier for ${r.bdcName}`}
-                      className="flex h-6 w-6 items-center justify-center rounded-md transition-transform"
-                      style={{ color: "var(--color-text-secondary)", transform: isOpen ? "rotate(90deg)" : "none" }}
-                    >
-                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M7 4 13 10 7 16" />
-                      </svg>
-                    </button>
-                  </td>
-                  <td className="py-2.5 pr-4 font-medium" style={{ color: "var(--color-text)" }}>{r.bdcName}</td>
-                  {CORE_COLS.map((c) => (
-                    <td key={c.key} className="py-2.5 pr-4" style={{ color: "var(--color-text)" }}>{c.cell(r)}</td>
-                  ))}
-                  <td className="py-2.5 pr-4"><SourceLink url={r.sourceUrl} /></td>
-                </tr>
-                {isOpen && (
-                  <tr className="border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-brand-light)" }}>
-                    <td className="p-3" />
-                    <td colSpan={CORE_COLS.length + 2} className="p-3">
-                      <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-                        {DOSSIER_COLS.map((c, i) => {
-                          const v = c.cell(r);
-                          return (
-                            <div key={c.head}>
-                              <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
-                                {c.head}{differs[i] && <span className="ml-1 normal-case" style={{ color: "var(--color-flagged)" }}>differs</span>}
-                              </dt>
-                              <dd className="mt-0.5" style={{ color: "var(--color-text)" }}>{v === null ? NOT_DISCLOSED : v}</dd>
-                            </div>
-                          );
-                        })}
-                      </dl>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {rows.map((r) => {
+        const id = r.bdcName + r.sourceUrl;
+        const isOpen = expanded.has(id);
+        return (
+          <div key={id} className="rounded-[var(--radius-card)] border p-4" style={{ borderColor: "var(--color-border-strong)", background: "var(--color-surface)" }}>
+            <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{r.bdcName}</p>
+            <dl className="mt-3 space-y-2 text-sm">
+              {CORE_FIELDS.map((c) => (
+                <div key={c.head} className="flex items-center justify-between gap-3">
+                  <dt style={{ color: "var(--color-text-secondary)" }}>{c.head}</dt>
+                  <dd className="font-medium" style={{ color: "var(--color-text)" }}>{c.cell(r) ?? NOT_DISCLOSED}</dd>
+                </div>
+              ))}
+            </dl>
+            {isOpen && (
+              <dl className="mt-3 space-y-2 border-t pt-3 text-sm" style={{ borderColor: "var(--color-border)" }}>
+                {DOSSIER_FIELDS.map((c, i) => {
+                  const v = c.cell(r);
+                  return (
+                    <div key={c.head} className="flex items-center justify-between gap-3">
+                      <dt style={{ color: "var(--color-text-secondary)" }}>
+                        {c.head}{differs[i] && <span className="ml-1" style={{ color: "var(--color-flagged)" }}>(differs)</span>}
+                      </dt>
+                      <dd className="font-medium" style={{ color: "var(--color-text)" }}>{v === null ? NOT_DISCLOSED : v}</dd>
+                    </div>
+                  );
+                })}
+              </dl>
+            )}
+            <div className="mt-3 flex items-center justify-between border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+              <button type="button" onClick={() => toggle(id)} aria-expanded={isOpen} className="text-xs font-medium hover:underline" style={{ color: "var(--color-text-secondary)" }}>
+                {isOpen ? "Hide details" : "More details"}
+              </button>
+              <SourceLink url={r.sourceUrl}>View filing &rarr;</SourceLink>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

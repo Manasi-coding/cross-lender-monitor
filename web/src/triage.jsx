@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
-import { BarList, Card, CardLabel, EmptyState, EvidenceTable, FLAG_STATUS, HistoryStrip, LenderValueBars, Load, PeriodTag, SignalChip, SourceLink, StatCard, StatusDot, useFetch } from "./components.jsx";
+import { BarList, Card, CardLabel, EmptyState, EvidenceTable, FLAG_STATUS, HistoryStrip, LenderValueBars, Load, PeriodTag, SignalChip, SourceLink, StatCard, StatusDot, StatusPill, useFetch } from "./components.jsx";
 import { FLAG_TEXT, NOT_YET, points, typeName, usd } from "./format.js";
 
 // Buckets of divergencePts, a field E4 already returns for every facility. Purely a client-side
@@ -175,6 +175,22 @@ const VALUE_EXPLAIN = {
   FLAGGED: "The lenders' reported values differ significantly.",
 };
 
+// A shared attribute that made the lenders' records count as one comparable facility, not a claim
+// about a specific pairwise match score (the API does not expose one for a materialized facility).
+function GroupedReason({ title, detail }) {
+  return (
+    <div className="rounded-xl border p-3" style={{ borderColor: "var(--color-border)" }}>
+      <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: "var(--color-brand-dark)" }}>
+        <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 10.5 8 15l9-10.5" />
+        </svg>
+        {title}
+      </p>
+      <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{detail}</p>
+    </div>
+  );
+}
+
 export function ComparisonPage() {
   const { id = "" } = useParams();
   const f = useFetch(() => getJson(`/api/facilities/${encodeURIComponent(id)}/comparison`), [id]);
@@ -195,27 +211,48 @@ export function ComparisonPage() {
           const hist = c.history;
           const priorBy = new Map(hist?.rows.map((r) => [r.bdcName, r.priorFairValuePctPar]) ?? []);
           const status = FLAG_STATUS[c.divergenceFlag] ?? { fg: "var(--color-text)", bg: "var(--color-border)" };
+          const lenderCount = c.rows.length;
+          const lowestValue = Math.min(...c.rows.map((r) => Number(r.fairValuePctPar)));
+          const headline =
+            c.divergenceFlag === "AGREEMENT"
+              ? `${lenderCount} ${lenderCount === 1 ? "lender reports" : "lenders report"} similar values for this facility.`
+              : c.divergenceFlag === "MILD"
+                ? `${lenderCount} lenders report somewhat different values for this facility.`
+                : `${lenderCount} lenders report very different values for this facility.`;
           return (
             <div className="space-y-6">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>
                   {typeName(c.instrumentType)}{c.referenceRate ? ` · ${c.referenceRate}` : ""}{c.maturityBucket ? ` · Maturity bucket ${c.maturityBucket}` : ""}
                 </p>
-                <h1 className="text-[28px] font-bold uppercase leading-tight" style={{ color: "var(--color-text)" }}>{c.borrowerName}</h1>
-                <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+                <div className="mt-1 flex flex-wrap items-center gap-3">
+                  <h1 className="text-[28px] font-bold uppercase leading-tight" style={{ color: "var(--color-text)" }}>{c.borrowerName}</h1>
+                  <StatusPill flag={c.divergenceFlag} />
+                </div>
+                <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>{headline}</p>
+                <p className="mt-1 text-xs" style={{ color: "var(--color-text-muted)" }}>
                   Reporting period: {c.periodEnd}<PeriodTag periodEnd={c.periodEnd} measured={overview?.measuredPeriodEnd} />
                 </p>
               </div>
 
-              <div className="card-shadow rounded-[var(--radius-card)] border p-6" style={{ borderColor: "var(--color-border-strong)", background: status.bg }}>
-                <CardLabel>Value check</CardLabel>
-                <p className="flex items-center gap-2 text-xl font-bold" style={{ color: status.fg }}>
-                  <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: status.dot }} />
-                  {VALUE_HEADLINE[c.divergenceFlag] ?? FLAG_TEXT[c.divergenceFlag]}
-                </p>
-                <p className="mt-5 text-sm" style={{ color: "var(--color-text-secondary)" }}>Difference between reported values</p>
-                <p className="mt-1 text-3xl font-bold" style={{ color: "var(--color-text)" }}>{points(c.divergencePts)} points</p>
-                <p className="mt-3 text-sm" style={{ color: "var(--color-text-secondary)" }}>{VALUE_EXPLAIN[c.divergenceFlag] ?? ""}</p>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Card>
+                  <CardLabel>Fair value</CardLabel>
+                  <p className="text-3xl font-bold" style={{ color: "var(--color-text)" }}>{lowestValue.toFixed(2)}%</p>
+                  <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>of par (lowest reported value)</p>
+                  <div className="mt-4 h-2.5 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+                    <div className="h-full rounded-full" style={{ width: `${Math.min(100, lowestValue)}%`, background: "var(--color-brand)" }} />
+                  </div>
+                </Card>
+                <div className="card-shadow rounded-[var(--radius-card)] border p-5" style={{ borderColor: "var(--color-border-strong)", background: status.bg }}>
+                  <CardLabel>Difference</CardLabel>
+                  <p className="text-3xl font-bold" style={{ color: "var(--color-text)" }}>{points(c.divergencePts)} pts</p>
+                  <p className="flex items-center gap-2 text-sm font-medium" style={{ color: status.fg }}>
+                    <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: status.dot }} />
+                    {VALUE_HEADLINE[c.divergenceFlag] ?? FLAG_TEXT[c.divergenceFlag]}
+                  </p>
+                  <p className="mt-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>{VALUE_EXPLAIN[c.divergenceFlag] ?? ""}</p>
+                </div>
               </div>
 
               {c.signals.length > 0 && (
@@ -282,6 +319,15 @@ export function ComparisonPage() {
                     Note: {c.excludedCount} {c.excludedCount === 1 ? "holding is" : "holdings are"} excluded because {c.excludedCount === 1 ? "it has" : "they have"} no usable mark.
                   </p>
                 )}
+              </Card>
+
+              <Card>
+                <CardLabel>Why these records are grouped together</CardLabel>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <GroupedReason title="Same borrower" detail={c.borrowerName} />
+                  <GroupedReason title="Same loan type" detail={typeName(c.instrumentType)} />
+                  <GroupedReason title="Same maturity bucket" detail={c.maturityBucket ?? "Not disclosed"} />
+                </div>
               </Card>
 
               <Card>
