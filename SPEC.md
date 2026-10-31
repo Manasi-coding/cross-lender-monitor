@@ -59,8 +59,8 @@ Node 20 is EOL
 Express
 5.x
 fallback to 4.x only if Day 1 finds a blocking incompatibility
-TypeScript
-5.x
+JavaScript (ES modules)
+Node 24.13.0, no TypeScript
 
 
 React
@@ -864,7 +864,7 @@ Day 10 (+0.75, minus 0.5): Triage view, Evidence panel, new Metrics cards; drop 
 Day 11 (+0.25): README and DECISIONS additions.
 Day 12 and after (+1.5): F3 decision at the Day 9 gate. If it passes: link_history.py, compare.py step 9, E4, E5 and E9 history fields, the History strip, the link check and tests 33 to 36.
 Totals: F1 and F2 add 2.25 build days, net 1.75 after cuts, 13 to 14 build days in all; with F3, 4.25 added, net 3.75, 15 to 16 build days. If behind: F1 first, then the dossier fields without the lift table, then the lift table; F3 is the first thing dropped.
-Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1, exposure_usd, built Day 7), 010 (draw records, built Day 8: band_sizes.draw_seed and outoftime_band_sizes), 011 (F2 dossier columns and signal codes, Day 9) and 012 (F3). With outoftime_band_sizes the schema has 19 tables.
+Migration numbers: 007 (normalized flags) and 008 (currency_source) are used. v2 migrations are 009 (F1, exposure_usd, built Day 7), 010 (draw records, built Day 8: band_sizes.draw_seed and outoftime_band_sizes), 011 (F2 dossier columns and signal codes, Day 9) and 012 (F3). With the later tables (outoftime_band_sizes, and the history tables of migration 012) the schema has 23 tables, plus schema_migrations.
 Day 8 checklist (v2), before python -m pipeline.config --freeze (items 1 to 4 are done in code and tested, the freeze itself is not run yet):
 1. Put CURRENCY_UNKNOWN into normalization.excluded_reason_order in config.yaml, at the NON_USD_PRINCIPAL slot, before the matcher hash exists (the section is hashed; the slot is applied in normalize.py today).
 2. The matcher hash must turn CRLF into LF before hashing, so the hash is the same on a Windows checkout and in CI.

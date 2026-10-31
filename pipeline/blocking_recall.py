@@ -6,6 +6,11 @@ Run: python -m pipeline.blocking_recall --draw | --record <holding_id> <counterp
               other BDCs' schedules by eye, outside the pipeline. Read only.
   --record    stores one hand-found pair in docs/blocking_recall_pending.json (not in the database). A holding with no true
               counterpart gets no entry, so n can be below the sample size.
+  --search TEXT --for HOLDING_ID
+              read only text search to help the hand check: lists the holdings of the other two BDCs, in the measured period, whose raw
+              borrower name contains every word of TEXT (case insensitive). Raw attribute columns only, in holding id order: no score,
+              no blocking key, no candidate status, no ranking and no suggestion. It is a plain text search, so a counterpart spelled very
+              differently needs another search term from you.
   --finalize  applies the blocking predicate (block.is_candidate, the section 6.2 rule) to each recorded pair and only then writes
               blocking_recall_checks rows with found_by_blocking set. It refuses if rows already exist. Until it runs the table is
               empty, so E9 blockingRecall stays null and no unfinalized pair can reach a metric.
@@ -58,6 +63,32 @@ def worksheet_text(conn, ids: list[int], period: date, cfg: dict) -> str:
         lines.append("| " + " | ".join("" if v is None else str(v).replace("|", "/").replace("\n", " ") for v in row) + " |")
     lines += ["", f"Draw: {len(ids)} holdings. Counterparts found by hand: ______ (fill in). Not found: ______."]
     return "\n".join(lines) + "\n"
+
+
+SEARCH_COLUMNS = ["holding_id", "BDC", "Printed name", "Instrument as printed", "Principal as printed", "Maturity as printed",
+                  "Interest rate as printed", "Accession number"]
+SEARCH_SQL = ("SELECT n.holding_id, f.bdc_name, r.portfolio_company_raw, r.instrument_type_raw, r.principal_raw, r.maturity_date_raw, "
+              "r.interest_rate_raw, f.accession_number "
+              "FROM normalized_holdings n JOIN raw_holdings r ON r.holding_id = n.holding_id JOIN raw_filings f ON f.filing_id = r.filing_id "
+              "WHERE n.period_end_date = %s AND n.bdc_cik <> %s AND r.portfolio_company_raw ILIKE ALL(%s) ORDER BY n.holding_id")
+
+
+def search(conn, period: date, holding_id: int, text: str) -> list[tuple]:
+    """Holdings of the BDCs other than the one that holds holding_id, in the period, whose raw name contains every word of text."""
+    words = text.split()
+    if not words:
+        raise SystemExit("search refuses: give at least one word.")
+    own = conn.execute("SELECT bdc_cik FROM normalized_holdings WHERE holding_id = %s AND period_end_date = %s", (holding_id, period)).fetchone()
+    if own is None:
+        raise SystemExit(f"search refuses: holding {holding_id} is not in the measured period {period}.")
+    patterns = ["%" + w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%" for w in words]
+    return conn.execute(SEARCH_SQL, (period, own[0], patterns)).fetchall()
+
+
+def search_text(rows: list[tuple]) -> str:
+    lines = ["\t".join(SEARCH_COLUMNS)]
+    lines += ["\t".join("" if v is None else str(v).replace("\t", " ").replace("\n", " ") for v in row) for row in rows]
+    return "\n".join(lines)
 
 
 def load_pending(path: Path) -> list[dict]:
@@ -114,8 +145,12 @@ def main(argv: list[str] | None = None) -> int:
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--draw", action="store_true")
     g.add_argument("--record", nargs=2, type=int, metavar=("HOLDING_ID", "COUNTERPART_ID"))
+    g.add_argument("--search", metavar="TEXT")
     g.add_argument("--finalize", action="store_true")
+    ap.add_argument("--for", dest="for_holding", type=int, metavar="HOLDING_ID", help="with --search: the drawn holding whose counterpart you are looking for")
     args = ap.parse_args(argv)
+    if args.search is not None and args.for_holding is None:
+        ap.error("--search needs --for HOLDING_ID")
     load_env_file()
     period, cfg = measured_period_end(), load_config()
     with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
@@ -123,6 +158,10 @@ def main(argv: list[str] | None = None) -> int:
             ids = draw(conn, period, cfg)
             WORKSHEET.write_text(worksheet_text(conn, ids, period, cfg), encoding="utf-8", newline="\n")
             print(f"drew {len(ids)} holdings for {period}, seed {cfg['blocking_recall']['seed']}; worksheet written to {WORKSHEET.name}")
+        elif args.search is not None:
+            rows = search(conn, period, args.for_holding, args.search)
+            print(search_text(rows))
+            print(f"{len(rows)} holdings listed (plain text search)")
         elif args.record:
             record(conn, period, cfg, *args.record)
             print(f"recorded {args.record[0]} with {args.record[1]} (pending until --finalize)")

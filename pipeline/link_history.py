@@ -107,11 +107,11 @@ def worksheet_text(conn, cfg: dict) -> str:
     pick = sorted(random.Random(f"{seed}:history_check").sample(ids, min(size, len(ids))))
     sql = ("SELECT l.holding_id, l.prior_holding_id, l.link_rule, f.bdc_name, rc.portfolio_company_raw, rp.portfolio_company_raw, "
            "rc.instrument_type_raw, rp.instrument_type_raw, rc.maturity_date_raw, rp.maturity_date_raw, rc.interest_rate_raw, rp.interest_rate_raw, "
-           "rc.source_url, rp.source_url FROM holding_history_links l JOIN raw_holdings rc ON rc.holding_id = l.holding_id "
+           "rc.principal_raw, rp.principal_raw, rc.source_url, rp.source_url FROM holding_history_links l JOIN raw_holdings rc ON rc.holding_id = l.holding_id "
            "JOIN raw_holdings rp ON rp.holding_id = l.prior_holding_id JOIN raw_filings f ON f.filing_id = rc.filing_id "
            "WHERE l.holding_id = ANY(%s) ORDER BY l.holding_id")
     cols = ["holding_id", "prior_holding_id", "rule", "BDC", "Name now", "Name before", "Type now", "Type before", "Maturity now",
-            "Maturity before", "Rate now", "Rate before", "Source now", "Source before"]
+            "Maturity before", "Rate now", "Rate before", "Principal now", "Principal before", "Source now", "Source before"]
     lines = [f"# History link worksheet", "",
              f"{len(pick)} links drawn at random with seed {seed} (config evidence). Raw attributes only. For each row decide whether the two holdings are "
              "the same position in the same BDC one quarter apart, from the filings. Record with "

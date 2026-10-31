@@ -115,3 +115,52 @@ def test_the_cli_draw_writes_the_worksheet_and_prints_counts_only(migrated_db, m
     out = capsys.readouterr().out
     assert "drew 30 holdings" in out and "borrower" not in out
     assert (tmp_path / "w.md").read_text().startswith("# Blocking recall worksheet, 2026-06-30")
+
+
+# ------------------------------------------------------------------ --search: a plain text lookup for the hand check
+def named(conn, rows):
+    """rows: (cik, name, period). Raw name and normalized name are the given text."""
+    return seed_normalized(conn, [{"bdc_cik": c, "period_end_date": p, "borrower_normalized": n, "instrument_type_norm": "FIRST_LIEN"} for c, n, p in rows])
+
+
+def test_search_lists_only_other_bdcs_in_the_measured_period_with_every_word_case_insensitive(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        ids = named(conn, [(CIKS[0], "Acme Holdings LLC", P2), (CIKS[1], "ACME Holdco Inc", P2), (CIKS[2], "Acme Intermediate Inc", P2),
+                           (CIKS[2], "Zeta Corp", P2), (CIKS[0], "Acme Prior Inc", P1), (CIKS[1], "Acme Prior Inc", P1), (CIKS[0], "Acme Same BDC", P2)])
+        got = br.search(conn, P2, ids[0], "acme inc")
+        assert [r[0] for r in got] == [ids[1], ids[2]]                       # not its own BDC, not the prior quarter, both words present
+        assert [r[0] for r in br.search(conn, P2, ids[0], "ACME")] == [ids[1], ids[2]]
+        assert br.search(conn, P2, ids[0], "acme zeta") == []                # every word is required
+        assert [r[0] for r in br.search(conn, P2, ids[1], "acme")] == [ids[0], ids[2], ids[6]]
+
+
+def test_search_escapes_wildcards_and_validates_its_input(migrated_db):
+    with psycopg.connect(migrated_db) as conn:
+        ids = named(conn, [(CIKS[0], "Acme", P2), (CIKS[1], "Acme 100% Inc", P2), (CIKS[2], "Acme Plain Inc", P2), (CIKS[2], "Acme_X Inc", P2), (CIKS[1], "Prior", P1)])
+        assert [r[0] for r in br.search(conn, P2, ids[0], "100%")] == [ids[1]]            # a literal percent sign, not a wildcard
+        assert [r[0] for r in br.search(conn, P2, ids[0], "_X")] == [ids[3]]
+        assert br.search(conn, P2, ids[0], "%") == [] or all("%" in r[2] for r in br.search(conn, P2, ids[0], "%"))
+        with pytest.raises(SystemExit, match="at least one word"):
+            br.search(conn, P2, ids[0], "   ")
+        with pytest.raises(SystemExit, match="not in the measured period"):
+            br.search(conn, P2, ids[4], "acme")
+
+
+def test_search_output_has_raw_attribute_columns_only_and_changes_nothing(migrated_db, monkeypatch, capsys):
+    monkeypatch.setenv("DATABASE_URL", migrated_db)
+    monkeypatch.setenv("MEASURED_PERIOD_END", "2026-06-30")
+    with psycopg.connect(migrated_db) as conn:
+        ids = named(conn, [(CIKS[0], "Acme One", P2), (CIKS[1], "Acme Two", P2)])
+        conn.execute("INSERT INTO candidate_pairs (holding_id_a, holding_id_b, score, status) VALUES (%s, %s, 0.97, 'AUTO')", (ids[0], ids[1]))
+        conn.commit()
+        before = [conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in ("candidate_pairs", "blocking_recall_checks", "label_samples", "labeled_pairs")]
+    assert br.main(["--search", "acme", "--for", str(ids[0])]) == 0
+    out = capsys.readouterr().out
+    header = out.splitlines()[0].split("\t")
+    assert header == br.SEARCH_COLUMNS
+    assert not any(w in out.lower() for w in ("score", "status", "block", "0.97", "auto", "rank", "likely", "candidate"))
+    assert "Acme Two" in out and "Acme One" not in out and "1 holdings listed" in out
+    with pytest.raises(SystemExit):
+        br.main(["--search", "acme"])                                                      # --for is required
+    with psycopg.connect(migrated_db) as conn:
+        assert before == [conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0] for t in ("candidate_pairs", "blocking_recall_checks", "label_samples", "labeled_pairs")]

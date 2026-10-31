@@ -46,6 +46,8 @@ Bands that were labeled in full are reported as counts, not as estimates. The RE
 
 The raw UNSURE count is 20 of 88 held out labels (22.7%).
 
+For recall the order of the two UNSURE treatments reverses: counting UNSURE as no match gives the higher recall (95.3% for AUTO only) and counting it as a match the lower (90.4%), so recall is labeled by treatment and not as worst or best. The bootstrap interval on the band weighted figures has zero width when every sampled AUTO label is a match, which is why recall counting UNSURE as a match shows 90.4% to 90.4%.
+
 Band weighted figures (optional, secondary): if REVIEW pairs were auto accepted, worst case precision is 90.2% (82.1% to 96.8%). Recall given blocking for AUTO only is between 90.4% (best case) and 95.3% (worst case). The bootstrap interval has no width when every sampled label in a band is a match, so treat these as secondary to the table above.
 
 ### Out of time check, prior quarter (separate, never pooled)
@@ -91,6 +93,8 @@ A facility is a group of holdings from at least two lenders that the matcher put
 
 Divergence sensitivity (facilities at or above each cutoff): 1 point 21, 2 points 12, 5 points 3.
 
+One facility dominates flagged exposure: ERC (facility 37, divergence 64.15 points) has an exposure of USD 5,176,691, which is 22.07% of the USD 23,456,868 total flagged exposure over 12 flagged facilities. `DECISIONS.md` records a provisional hand check of DIFFERENT_TRANCHE for ERC (ADS holds a fixed rate loan on non accrual, HPS a floating rate loan with PIK), so it may inflate flagged exposure. That check is provisional, not confirmed.
+
 Triage ranks flagged facilities by exposure: `exposure_usd = divergence points / 100 * the smallest principal among the compared holdings`. It is a ranking key, not an estimate of loss.
 
 ### Evidence (signals present, not causes)
@@ -107,7 +111,7 @@ For each facility the filing facts that sit next to the gap are shown: cost, cos
 | Floor differs | 0 | 0 |
 | Maturity differs | 0 | 0 |
 
-8 of the 12 flagged facilities carry no signal. Those are the ones an analyst has to investigate by hand. The counts are too small to say that any signal separates flagged from agreeing facilities. Floor is disclosed for ADS and HPS only, never ORCIC (field coverage per BDC is on the Metrics page).
+9 of the 93 facilities carry at least one signal, and 8 of the 12 flagged facilities carry none. Those are the ones an analyst has to investigate by hand. The counts are too small to say that any signal separates flagged from agreeing facilities. Floor is disclosed for ADS and HPS only, never ORCIC (field coverage per BDC is on the Metrics page).
 
 ### History (two quarters are not a trend)
 
@@ -167,7 +171,7 @@ flowchart LR
 
 ## Splink
 
-Not built. The matcher is token sort ratio on the normalized name with blocking on attributes, and no Splink result is claimed.
+Splink, the optional benchmark held for the buffer day of the plan, was not built. The matcher is token sort ratio on the normalized name with blocking on attributes, and no Splink result is claimed.
 
 ## If this ran at scale (ideation, not built)
 
