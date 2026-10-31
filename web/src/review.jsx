@@ -377,29 +377,35 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
               These pairs are already grouped together. Leave as is if they belong together, or mark a pair as not the same to split it out.
             </p>
             <ul className="mt-2 space-y-2">
-              {c.pairs.map((p) => {
+              {c.pairs.map((p, i) => {
                 const holdingA = byHoldingId.get(p.holdingIdA);
                 const holdingB = byHoldingId.get(p.holdingIdB);
                 const nameA = holdingA?.rawName ?? "Name not disclosed";
                 const nameB = holdingB?.rawName ?? "Name not disclosed";
                 const suspicious = holdingDiffers(holdingA) || holdingDiffers(holdingB);
                 const dismissed = dismissedPairs.has(`${p.holdingIdA}-${p.holdingIdB}`);
+                const detail = (h) => `${h?.maturityDate ?? "maturity not disclosed"}, ${bps(h?.spreadBps ?? null, "spread not disclosed")}`;
                 return (
                   <li
                     key={`${p.holdingIdA}-${p.holdingIdB}`}
                     className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-2.5 text-sm ${fading.has(`pair-${p.holdingIdA}-${p.holdingIdB}`) || dismissed ? "fade-out-card" : ""}`}
                     style={{ borderColor: suspicious ? "var(--color-flagged)" : "var(--color-border)" }}
                   >
-                    <span style={{ color: "var(--color-text)" }}>
-                      {nameA} <span style={{ color: "var(--color-text-muted)" }}>and</span> {nameB}
+                    <div>
+                      <p style={{ color: "var(--color-text-muted)" }} className="text-xs">Pair {i + 1} of {c.pairs.length}</p>
+                      <p style={{ color: "var(--color-text)" }}>
+                        {nameA} <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>({detail(holdingA)})</span>
+                        <span style={{ color: "var(--color-text-muted)" }}> and </span>
+                        {nameB} <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>({detail(holdingB)})</span>
+                      </p>
                       {suspicious && (
-                        <span className="ml-2 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
+                        <span className="mt-1 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-semibold" style={{ color: "var(--color-flagged)", background: "var(--color-flagged-light)" }}>
                           <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: "var(--color-chart-red)" }} />
                           Worth a closer look
                         </span>
                       )}
-                    </span>
-                    <div className="flex gap-2">
+                    </div>
+                    <div className="flex shrink-0 gap-2">
                       <button
                         type="button"
                         disabled={busy}
