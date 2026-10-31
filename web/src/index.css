@@ -9,7 +9,7 @@
   --color-bg: #f5f7f5;
   --color-surface: #ffffff;
   --color-border: #e4e8e5;
-  --color-border-strong: rgba(18, 38, 27, 0.2);
+  --color-border-strong: var(--color-sidebar-bg);
 
   --color-text: #172033;
   --color-text-secondary: #667085;

@@ -76,7 +76,7 @@ export function ReviewPage() {
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <StatCard compact label="Need review" value={items.length} tone="review" />
                 <StatCard compact label="Possible match" value={matches.length} tone="brand" />
-                <StatCard compact label="Group issues" value={groups.length} tone="review" />
+                <StatCard compact label="Group issues" value={groups.length} tone="flagged" />
                 <StatCard compact label="Completed" value={completed} tone="neutral" />
               </div>
 
@@ -87,7 +87,7 @@ export function ReviewPage() {
                     compact
                     rows={[
                       { label: "Possible match", value: matches.length, color: "var(--color-brand)" },
-                      { label: "Group issue", value: groups.length, color: "var(--color-review)" },
+                      { label: "Group issue", value: groups.length, color: "var(--color-flagged)" },
                     ]}
                   />
                 </Card>
@@ -99,7 +99,7 @@ export function ReviewPage() {
                       Possible match <span className="ml-auto font-semibold">{matches.length}</span>
                     </p>
                     <p className="flex items-center gap-2" style={{ color: "var(--color-text)" }}>
-                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-review)" }} />
+                      <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: "var(--color-flagged)" }} />
                       Group issue <span className="ml-auto font-semibold">{groups.length}</span>
                     </p>
                   </div>
@@ -151,7 +151,7 @@ export function ReviewPage() {
 }
 
 function SectionLabel({ tone = "review", children }) {
-  const dot = tone === "brand" ? "var(--color-brand)" : "var(--color-review)";
+  const dot = tone === "brand" ? "var(--color-brand)" : tone === "flagged" ? "var(--color-flagged)" : "var(--color-review)";
   return (
     <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>
       <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: dot }} />
@@ -168,8 +168,8 @@ function SecondaryPreview({ item, index, total }) {
   return (
     <div className="rounded-[var(--radius-card)] border p-3 opacity-70" style={{ borderColor: "var(--color-border)", background: "var(--color-surface)" }}>
       <div className="flex items-center justify-between gap-2">
-        <SectionLabel tone={isPair ? "brand" : "review"}>{isPair ? "Possible match" : "Group issue"}</SectionLabel>
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{index} of {total}</span>
+        <SectionLabel tone={isPair ? "brand" : "flagged"}>{isPair ? "Possible match" : "Group issue"}</SectionLabel>
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{index}/{total}</span>
       </div>
       <p className="mt-1 text-sm font-medium uppercase" style={{ color: "var(--color-text)" }}>{title}</p>
     </div>
@@ -229,7 +229,7 @@ function PairCard({ p, measured, busy, fading, index, total, onAct }) {
     <Card className={fading ? "fade-out-card" : ""}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <SectionLabel tone="brand">Possible match<PeriodTag periodEnd={p.periodEnd} measured={measured} /></SectionLabel>
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Case {index} of {total}</span>
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{index}/{total}</span>
       </div>
       <p className="mt-1 font-semibold uppercase" style={{ color: "var(--color-text)" }}>{p.rawNameA ?? p.rawNameB ?? "Name not disclosed"}</p>
       <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Are these two records the same borrower?</p>
@@ -261,8 +261,8 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <SectionLabel>Group issue<PeriodTag periodEnd={c.periodEnd} measured={measured} /></SectionLabel>
-        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>Case {index} of {total}</span>
+        <SectionLabel tone="flagged">Group issue<PeriodTag periodEnd={c.periodEnd} measured={measured} /></SectionLabel>
+        <span className="text-xs" style={{ color: "var(--color-text-muted)" }}>{index}/{total}</span>
       </div>
       <p className="mt-1 font-semibold uppercase" style={{ color: "var(--color-text)" }}>{title}</p>
       <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>Several records from the same lender were grouped together.</p>
