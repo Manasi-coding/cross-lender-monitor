@@ -45,8 +45,9 @@ One line per file. Matcher files are frozen (see DECISIONS.md): normalize.py, bl
 - Dockerfile, package.json, package-lock.json, vitest.config.js: run and test setup (plain Node, no build step).
 
 ## Web (`web/`)
-- src/main.jsx: routes. src/App.jsx: the shell, sidebar, search and theme. src/api.js: the fetch wrapper. src/format.js: display rounding and the null wording. src/types.js: JSDoc typedefs of the API shapes, documentation only (CONTRACT.md is the source of truth).
-- src/components.jsx: shared cards, tags, tables and the two inline SVG charts. src/pages.jsx: Overview, Borrowers, Borrower detail, Filings. src/triage.jsx: Triage and Facility comparison. src/review.jsx: Review queue. src/metrics.jsx: Metrics. src/Label.jsx: the dev only labeling page.
+- src/main.jsx: routes. src/App.jsx: the shell, sidebar, search, theme, page-transition wrapper, and the window-focus refetch of the shared overview. src/api.js: the fetch wrapper. src/format.js: display rounding and the null wording. src/types.js: JSDoc typedefs of the API shapes, documentation only (CONTRACT.md is the source of truth).
+- src/components.jsx: shared cards, tags, tables, inline SVG charts (donut, range bar, clickable stacked bar, dot plot, history strip), the `useFetch` hook (loading/error states plus focus-triggered refetch), `useCountUp` (animates a stat card to an already-known API value, never a simulated one), and the sortable/expandable `EvidenceTable`.
+- src/pages.jsx: Overview (stat-card count-up, clickable divergence bar), Borrowers (URL-synced debounced search), Borrower detail, Filings. src/triage.jsx: Triage (URL-synced flag chips and sort, both restricted to the flag/sort values CONTRACT.md's E4 defines) and Facility Comparison (reuses the sortable/expandable `EvidenceTable`). src/review.jsx: Review queue (fade-out only after a write succeeds, "Decision saved" toast, refetches E6 and E1 on success). src/metrics.jsx: Metrics (adds `RangeBar` under each existing interval line; wording unchanged). src/Label.jsx: the dev only labeling page, unchanged.
 - Dockerfile, nginx.conf, vite.config.js, package.json, package-lock.json, index.html: build and serve.
 
 ## Tests (`tests/`, pytest)

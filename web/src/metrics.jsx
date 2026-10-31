@@ -1,5 +1,5 @@
 import { getJson } from "./api.js";
-import { BandTable, Card, Load, PageTitle, RangeStat, ci, useFetch } from "./components.jsx";
+import { BandTable, Card, Load, PageTitle, RangeBar, RangeStat, ci, useFetch } from "./components.jsx";
 import { NOT_YET, SIGNAL_TEXT, pct } from "./format.js";
 // 4.7 Metrics. Every null field reads "Not yet measured" on its own. The held-out evaluation and the out-of-time report are shown
 // separately and never pooled. No figure includes review-queue confirmations.
@@ -42,6 +42,7 @@ function Body({ m }) {
           <Card>
             <p className="font-semibold">Blocking recall (30 held out holdings)</p>
             <p>{m.blockingRecall ? ci(m.blockingRecall) : NOT_YET}</p>
+            {m.blockingRecall && <RangeBar ci={m.blockingRecall} />}
           </Card>
         </div>
         <Card>

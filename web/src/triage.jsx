@@ -1,39 +1,88 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useParams, useSearchParams } from "react-router";
 import { ApiFailure, getJson } from "./api.js";
 import { useShared } from "./App.jsx";
 import { Banner, Card, DotPlot, EmptyState, EvidenceTable, ExposureTag, HistoryStrip, inputClass, inputStyle, Load, PageTitle, PeriodTag, PersistenceTag, SignalChip, StatusPill, useFetch } from "./components.jsx";
 import { FLAG_TEXT, fixed, points, spreadRange, typeName } from "./format.js";
 import { useDebounced } from "./pages.jsx";
 
+// The only flag and sort values CONTRACT.md's E4 accepts. "All" sends no flag parameter at all.
+const FLAG_CHIPS = [
+  [undefined, "All"],
+  ["AGREEMENT", "Agreement"],
+  ["MILD", "Mild"],
+  ["FLAGGED", "Flagged"],
+];
+const SORTS = [
+  ["borrower", "Borrower"],
+  ["exposure", "Exposure"],
+];
+
 // ------------------------------------------------------------------ 4.4 Triage (the Facilities page)
 export function TriagePage() {
-  const [view, setView] = useState("flagged");
-  const [text, setText] = useState("");
+  const [params, setParams] = useSearchParams();
+  const urlFlag = params.get("flag") ?? undefined;
+  const urlSort = params.get("sort") === "exposure" ? "exposure" : "borrower";
+  const [text, setText] = useState(params.get("search") ?? "");
+  useEffect(() => setText(params.get("search") ?? ""), [params]);
   const q = useDebounced(text.trim());
-  // only valid parameter values are ever sent: flag is FLAGGED or absent, sort is exposure or absent
+
+  const setQuery = (next) => {
+    const merged = { flag: urlFlag, sort: urlSort, search: params.get("search") ?? undefined, ...next };
+    const clean = {};
+    for (const [k, v] of Object.entries(merged)) if (v) clean[k] = v;
+    setParams(clean, { replace: true });
+  };
+
+  useEffect(() => {
+    // Keep the URL's search term in step with the debounced text, without fighting the user's typing.
+    if (q !== (params.get("search") ?? "")) setQuery({ search: q || undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+
   const f = useFetch(
-    () => getJson("/api/facilities", view === "flagged" ? { flag: "FLAGGED", sort: "exposure", search: q || undefined } : { search: q || undefined }),
-    [view, q],
+    () => getJson("/api/facilities", { flag: urlFlag, sort: urlSort, search: q || undefined }),
+    [urlFlag, urlSort, q],
   );
   const { overview } = useShared();
   return (
     <>
       <PageTitle sub="Start with the cases where reported values differ the most">Triage</PageTitle>
-      <div className="mb-5 flex flex-wrap items-center gap-2">
-        <div role="group" aria-label="View" className="flex gap-2">
-          {(["flagged", "all"]).map((v) => (
-            <button key={v} aria-pressed={view === v} onClick={() => setView(v)} className="btn-secondary">
-              {v === "flagged" ? "Flagged" : "All"}
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        <div role="group" aria-label="Filter by status" className="flex flex-wrap gap-2">
+          {FLAG_CHIPS.map(([flag, label]) => (
+            <button key={label} aria-pressed={urlFlag === flag} onClick={() => setQuery({ flag })} className="btn-secondary">
+              {label}
             </button>
           ))}
         </div>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Search borrower" aria-label="Search borrower" maxLength={200} className={`max-w-md ${inputClass}`} style={inputStyle} />
+        <label className="flex items-center gap-2 text-sm" style={{ color: "var(--color-text-secondary)" }}>
+          Sort
+          <select
+            value={urlSort}
+            onChange={(e) => setQuery({ sort: e.target.value === "exposure" ? "exposure" : undefined })}
+            className="rounded-xl border px-2.5 py-1.5 text-sm outline-none focus:border-[var(--color-brand)]"
+            style={inputStyle}
+          >
+            {SORTS.map(([v, label]) => (
+              <option key={v} value={v}>{label}</option>
+            ))}
+          </select>
+        </label>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Search borrower"
+          aria-label="Search borrower"
+          maxLength={200}
+          className={`max-w-md flex-1 ${inputClass}`}
+          style={inputStyle}
+        />
       </div>
       <Load f={f}>
         {(rows) =>
           rows.length === 0 ? (
-            <EmptyState>{view === "flagged" ? "No flagged facilities match this search." : "No facilities match this search."}</EmptyState>
+            <EmptyState>No facilities match this filter.</EmptyState>
           ) : (
             <div className="space-y-4">
               {rows.map((x) => (

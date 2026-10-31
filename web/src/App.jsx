@@ -1,9 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { getJson } from "./api.js";
 import { Icon } from "./components.jsx";
 
-const Ctx = createContext({ overview: null, refresh: () => {} });
+const Ctx = createContext({ overview: null, refresh: () => {}, failed: false });
 export const useShared = () => useContext(Ctx);
 
 const NAV = [
@@ -29,6 +29,7 @@ export default function App() {
   const [theme, setTheme] = useState(readTheme);
   const [q, setQ] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
 
   const refresh = useCallback(() => {
     getJson("/api/overview").then(
@@ -40,6 +41,14 @@ export default function App() {
     );
   }, []);
   useEffect(refresh, [refresh]);
+
+  // Refetch the shared overview (sidebar counts, Review badge) when the tab regains focus, so it
+  // never shows a stale pendingReviewCount after a decision was made elsewhere. No polling or
+  // simulated updates: this only runs on a real focus event.
+  useEffect(() => {
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [refresh]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -56,7 +65,7 @@ export default function App() {
   };
 
   return (
-    <Ctx.Provider value={{ overview, refresh }}>
+    <Ctx.Provider value={{ overview, refresh, failed }}>
       <div className="flex min-h-screen flex-col md:flex-row" style={{ background: "var(--color-bg)" }}>
         <nav
           className="flex flex-col p-5 md:w-60 md:shrink-0"
@@ -126,11 +135,12 @@ export default function App() {
             </button>
           </header>
           {failed && (
-            <p role="alert" className="mb-5 rounded-2xl border p-3 text-sm" style={{ borderColor: "var(--color-flagged)", background: "var(--color-flagged-light)", color: "var(--color-flagged)" }}>
-              The overview could not be loaded, so counts and period tags are hidden.
-            </p>
+            <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border p-3 text-sm" style={{ borderColor: "var(--color-flagged)", background: "var(--color-flagged-light)", color: "var(--color-flagged)" }}>
+              <span>The overview could not be loaded, so counts and period tags are hidden.</span>
+              <button className="btn-secondary" onClick={refresh}>Retry</button>
+            </div>
           )}
-          <main>
+          <main key={location.pathname} className="animate-page-in">
             <Outlet />
           </main>
         </div>

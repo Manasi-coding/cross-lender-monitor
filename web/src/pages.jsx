@@ -5,8 +5,10 @@ import { useShared } from "./App.jsx";
 import {
   Card,
   CardLabel,
+  ClickableDivergenceBar,
   DivergenceDonut,
   EmptyState,
+  ErrorState,
   HeroCard,
   HeroLink,
   inputClass,
@@ -15,6 +17,7 @@ import {
   PageTitle,
   PeriodTag,
   RankedShareList,
+  Skeleton,
   SourceLink,
   StatCard,
   StatusPill,
@@ -34,7 +37,7 @@ const share = (n, total) => (total === 0 ? NOT_YET : `${((n / total) * 100).toFi
 
 // ------------------------------------------------------------------ 4.1 Overview
 export function OverviewPage() {
-  const { overview: o } = useShared();
+  const { overview: o, failed, refresh } = useShared();
   // Reuses the existing E4 facilities endpoint (flag=FLAGGED, sort=exposure) to drive the "biggest differences"
   // and "cases worth looking at first" sections below. No new endpoint, no invented figures.
   const flagged = useFetch(() => getJson("/api/facilities", { flag: "FLAGGED", sort: "exposure" }), []);
@@ -43,7 +46,7 @@ export function OverviewPage() {
     return (
       <>
         <PageTitle>Overview</PageTitle>
-        <p style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>
+        {failed ? <ErrorState error={{ message: "The overview could not be loaded." }} retry={refresh} /> : <Skeleton />}
       </>
     );
   }
@@ -51,6 +54,7 @@ export function OverviewPage() {
   const s = o.divergenceSplit;
   const total = s ? s.agreement + s.mild + s.flagged : 0;
   const agreementShare = s && total > 0 ? share(s.agreement, total) : NOT_YET;
+  const agreementPctNum = s && total > 0 ? (s.agreement / total) * 100 : null;
   const flaggedRows = flagged.state === "ready" ? flagged.data : [];
   const topCases = flaggedRows.slice(0, 5);
   const topExposureByBorrower = flaggedRows.slice(0, 5).map((r) => ({ label: r.borrowerName, value: Number(r.exposureUsd) }));
@@ -61,11 +65,6 @@ export function OverviewPage() {
 
       <HeroCard
         eyebrow={`Measured quarter · ${o.measuredPeriodEnd}`}
-        title={
-          s
-            ? `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}. ${s.flagged} ${s.flagged === 1 ? "case needs" : "cases need"} a closer look, ${usd(o.flaggedExposureUsd)} flagged exposure in total.`
-            : `${o.facilityCount} facilities tracked across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}.`
-        }
         actions={
           <>
             <HeroLink to="/borrowers">Browse borrowers</HeroLink>
@@ -77,26 +76,45 @@ export function OverviewPage() {
       <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Facilities"
-          value={o.facilityCount}
+          countTo={o.facilityCount}
+          format={(v) => Math.round(v)}
           to="/facilities"
           note={`Across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`}
           tone="neutral"
           icon="layers"
         />
-        <StatCard label="Need review" value={o.pendingReviewCount} to="/review" note="Need a closer look" tone="review" icon="search" />
-        <StatCard label="Flagged exposure" value={usd(o.flaggedExposureUsd)} to="/facilities" note="Ranking key, not loss" tone="flagged" icon="flag" />
-        <StatCard label="Agreement" value={agreementShare} to="/metrics" note="Valuations are close" tone="brand" icon="check" />
+        <StatCard label="Need review" countTo={o.pendingReviewCount} format={(v) => Math.round(v)} to="/review" note="Need a closer look" tone="review" icon="search" />
+        <StatCard
+          label="Flagged exposure"
+          countTo={o.flaggedExposureUsd === null ? NaN : Number(o.flaggedExposureUsd)}
+          format={(v) => usd(String(v))}
+          value={usd(o.flaggedExposureUsd)}
+          to="/facilities"
+          note="Ranking key, not loss"
+          tone="flagged"
+          icon="flag"
+        />
+        <StatCard
+          label="Agreement"
+          countTo={agreementPctNum === null ? NaN : agreementPctNum}
+          format={(v) => `${v.toFixed(1)}%`}
+          value={agreementShare}
+          to="/metrics"
+          note="Valuations are close"
+          tone="brand"
+          icon="check"
+        />
       </div>
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-2">
+      <div className="mt-6 grid gap-5 lg:grid-cols-[2fr_3fr]">
         <Card>
           <CardLabel>Valuation differences</CardLabel>
           {s ? (
             <>
               <DivergenceDonut agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
-              <p className="mt-5 border-t pt-4 text-sm" style={{ borderColor: "var(--color-border)", color: "var(--color-text-secondary)" }}>
-                {agreementShare} of facilities are in agreement between lenders. {s.mild} {s.mild === 1 ? "is a mild" : "are mild"} difference, {s.flagged} {s.flagged === 1 ? "is" : "are"} flagged.
-              </p>
+              <div className="mt-5 border-t pt-4" style={{ borderColor: "var(--color-border)" }}>
+                <ClickableDivergenceBar agreement={s.agreement} mild={s.mild} flagged={s.flagged} />
+              </div>
             </>
           ) : (
             <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{NOT_YET}</p>

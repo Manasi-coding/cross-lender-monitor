@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { ApiFailure } from "./api.js";
-import { FLAG_TEXT, NOT_YET, PERSISTENCE_TEXT, SIGNAL_TEXT, fixed, pct, usd } from "./format.js";
+import { FLAG_TEXT, NOT_DISCLOSED, NOT_YET, PERSISTENCE_TEXT, SIGNAL_TEXT, fixed, pct, usd } from "./format.js";
 
+// Fetches on mount/dep change and again whenever the tab regains focus, so a page left open shows
+// what the API has now rather than a stale snapshot. A fetch already in flight is not duplicated.
 export function useFetch(load, deps) {
   const [s, setS] = useState({ state: "loading" });
   const [tick, setTick] = useState(0);
@@ -19,7 +21,39 @@ export function useFetch(load, deps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick]);
+  useEffect(() => {
+    const onFocus = () => retry();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [retry]);
   return s;
+}
+
+// Animates a number from 0 to a real, already-known target over a short duration, using
+// requestAnimationFrame. The last frame always sets the exact target, so the displayed value
+// never lands on anything other than what the API returned.
+export function useCountUp(target, durationMs = 700) {
+  const [value, setValue] = useState(() => (Number.isFinite(target) ? 0 : target));
+  useEffect(() => {
+    if (!Number.isFinite(target)) {
+      setValue(target);
+      return;
+    }
+    let raf;
+    const start = performance.now();
+    const from = 0;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - (1 - t) * (1 - t);
+      setValue(from + (target - from) * eased);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else setValue(target);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, durationMs]);
+  return value;
 }
 
 export function Skeleton() {
@@ -110,14 +144,18 @@ const TONE = {
   flagged: { bg: "var(--color-flagged-light)", fg: "var(--color-flagged)" },
 };
 
-export function StatCard({ label, value, to, note, tone = "neutral", icon }) {
+// value is shown as-is. Pass countTo (a real number already in hand) plus format to animate the
+// digits up to that same number on mount; the final frame always renders format(countTo) exactly.
+export function StatCard({ label, value, countTo, format, to, note, tone = "neutral", icon }) {
   const t = TONE[tone] ?? TONE.neutral;
+  const animated = useCountUp(countTo ?? NaN);
+  const shown = Number.isFinite(countTo) ? format(animated) : value;
   return (
     <Card to={to}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-secondary)" }}>{label}</p>
-          <p className="mt-2 text-[28px] font-bold leading-none" style={{ color: "var(--color-text)" }}>{value}</p>
+          <p className="mt-2 text-[28px] font-bold leading-none tabular-nums" style={{ color: "var(--color-text)" }}>{shown}</p>
           {note && <p className="mt-1.5 text-sm" style={{ color: "var(--color-text-secondary)" }}>{note}</p>}
         </div>
         {icon && (
@@ -135,7 +173,7 @@ export function HeroCard({ eyebrow, title, subtitle, actions }) {
   return (
     <div className="hero-solid card-shadow rounded-[var(--radius-card)] p-6 sm:p-7" style={{ color: "var(--color-brand-dark)" }}>
       {eyebrow && <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--color-brand-dark)", opacity: 0.75 }}>{eyebrow}</p>}
-      <p className="mt-2 text-2xl font-bold leading-snug sm:text-[28px]">{title}</p>
+      {title && <p className="mt-2 text-2xl font-bold leading-snug sm:text-[28px]">{title}</p>}
       {subtitle && <p className="mt-2 max-w-xl text-sm" style={{ opacity: 0.85 }}>{subtitle}</p>}
       {actions && <div className="mt-5 flex flex-wrap gap-2.5">{actions}</div>}
     </div>
@@ -204,6 +242,77 @@ export function DivergenceDonut({ agreement, mild, flagged }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// A stacked horizontal bar of the three divergence flags. Each segment is a real link to Triage
+// pre-filtered to that flag (?flag=...), using only the E4 flag parameter CONTRACT.md defines.
+export function ClickableDivergenceBar({ agreement, mild, flagged }) {
+  const total = agreement + mild + flagged;
+  const segs = [
+    ["AGREEMENT", agreement],
+    ["MILD", mild],
+    ["FLAGGED", flagged],
+  ];
+  if (total === 0) return null;
+  return (
+    <div>
+      <div className="flex h-3.5 w-full overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
+        {segs.map(([flag, n]) => {
+          if (n === 0) return null;
+          const s = FLAG_STATUS[flag];
+          return (
+            <Link
+              key={flag}
+              to={`/facilities?flag=${flag}`}
+              title={`${FLAG_TEXT[flag]}: ${n} facilities. View in Triage.`}
+              aria-label={`${FLAG_TEXT[flag]}, ${n} facilities. View in Triage.`}
+              className="h-full transition-opacity hover:opacity-80 focus-visible:opacity-80"
+              style={{ width: `${(n / total) * 100}%`, background: s.dot }}
+            />
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-xs">
+        {segs.map(([flag, n]) => {
+          const s = FLAG_STATUS[flag];
+          return (
+            <Link key={flag} to={`/facilities?flag=${flag}`} className="flex items-center gap-1.5 hover:underline" style={{ color: "var(--color-text-secondary)" }}>
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.dot }} />
+              {FLAG_TEXT[flag]} ({n})
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// A toast notification, bottom-right, auto-dismissed by the caller. Used only to confirm an API
+// write already succeeded, never to suggest anything is updating on its own.
+export function Toast({ children }) {
+  return (
+    <div role="status" aria-live="polite" className="fixed bottom-5 right-5 z-50 rounded-xl border px-4 py-2.5 text-sm font-medium shadow-lg animate-toast-in" style={{ background: "var(--color-brand-dark)", borderColor: "var(--color-brand-dark)", color: "#ffffff" }}>
+      {children}
+    </div>
+  );
+}
+
+// A low-to-high bar for a confidence interval, with a tick at the point estimate. Purely a visual
+// of the exact numbers already in the Ci; it adds no label text of its own (callers keep the
+// existing wording next to it).
+export function RangeBar({ ci: c }) {
+  if (!c) return null;
+  const lowPct = Math.max(0, Math.min(100, c.low * 100));
+  const highPct = Math.max(0, Math.min(100, c.high * 100));
+  const valuePct = Math.max(0, Math.min(100, c.value * 100));
+  return (
+    <div className="mt-1.5" aria-hidden="true">
+      <div className="relative h-2 w-full rounded-full" style={{ background: "var(--color-border)" }}>
+        <div className="absolute inset-y-0 rounded-full" style={{ left: `${lowPct}%`, width: `${Math.max(0, highPct - lowPct)}%`, background: "var(--color-brand)", opacity: 0.45 }} />
+        <div className="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2" style={{ left: `${valuePct}%`, background: "var(--color-brand-dark)", borderColor: "var(--color-surface)" }} />
       </div>
     </div>
   );
@@ -306,7 +415,7 @@ export function RankedShareList({ rows, total }) {
     <div className="space-y-3">
       {rows.map((r) => (
         <div key={r.label} className="flex items-center gap-3">
-          <span className="w-28 shrink-0 truncate text-sm font-medium" style={{ color: "var(--color-text)" }}>{r.label}</span>
+          <span className="w-44 shrink-0 truncate text-sm font-medium sm:w-56" style={{ color: "var(--color-text)" }} title={r.label}>{r.label}</span>
           <div className="h-2 flex-1 overflow-hidden rounded-full" style={{ background: "var(--color-border)" }}>
             <div className="h-full rounded-full" style={{ width: `${(r.value / max) * 100}%`, background: "var(--color-flagged)" }} />
           </div>
@@ -340,9 +449,12 @@ export function RangeStat({ title, range, kind = "precision", weighted = false }
     <Card>
       <p className="font-semibold">{title}</p>
       {known.length >= 2 && <p className="text-sm">Range across treatments: {pct(known[0].value)} to {pct(known[known.length - 1].value)}</p>}
-      <ul className="mt-1 space-y-1">
+      <ul className="mt-1 space-y-2.5">
         {lines.map(([label, c]) => (
-          <li key={label}><span className="font-medium">{label}:</span> {ci(c, interval)}</li>
+          <li key={label}>
+            <span className="font-medium">{label}:</span> {ci(c, interval)}
+            <RangeBar ci={c} />
+          </li>
         ))}
       </ul>
       {weighted && <p className="mt-1 text-xs">The bootstrap interval has zero width when every sampled AUTO label is a match.</p>}
@@ -428,42 +540,122 @@ export function HistoryStrip({ rows, persistence }) {
   );
 }
 
-const COLS = [
-  { head: "Spread", cell: (r) => (r.spreadBps === null ? null : fixed(r.spreadBps, 0) + " bps"), dossier: false },
-  { head: "FV % of par", cell: (r) => fixed(r.fairValuePctPar, 2), dossier: false },
-  { head: "Cost % of par", cell: (r) => (r.costPctPar === null ? null : fixed(r.costPctPar, 2)), dossier: true },
-  { head: "FV % of cost", cell: (r) => (r.fvPctCost === null ? null : fixed(r.fvPctCost, 2)), dossier: true },
-  { head: "Floor", cell: (r) => (r.floorBps === null ? null : fixed(r.floorBps, 0) + " bps"), dossier: true },
-  { head: "PIK", cell: (r) => (r.pikBps === null ? null : fixed(r.pikBps, 0) + " bps"), dossier: true },
-  { head: "Maturity", cell: (r) => r.maturityDate, dossier: true },
-  { head: "Non accrual", cell: (r) => (r.nonAccrual === null ? null : r.nonAccrual ? "Yes" : "No"), dossier: true },
+const CORE_COLS = [
+  { head: "Spread", key: "spreadBps", cell: (r) => (r.spreadBps === null ? null : fixed(r.spreadBps, 0) + " bps"), sort: (r) => (r.spreadBps === null ? -Infinity : Number(r.spreadBps)) },
+  { head: "FV % of par", key: "fairValuePctPar", cell: (r) => fixed(r.fairValuePctPar, 2), sort: (r) => Number(r.fairValuePctPar) },
+  { head: "Principal", key: "principal", cell: (r) => usd(r.principal), sort: (r) => Number(r.principal) },
+];
+const DOSSIER_COLS = [
+  { head: "Cost % of par", cell: (r) => (r.costPctPar === null ? null : fixed(r.costPctPar, 2)) },
+  { head: "FV % of cost", cell: (r) => (r.fvPctCost === null ? null : fixed(r.fvPctCost, 2)) },
+  { head: "Floor", cell: (r) => (r.floorBps === null ? null : fixed(r.floorBps, 0) + " bps") },
+  { head: "PIK", cell: (r) => (r.pikBps === null ? null : fixed(r.pikBps, 0) + " bps") },
+  { head: "Maturity", cell: (r) => r.maturityDate },
+  { head: "Non accrual", cell: (r) => (r.nonAccrual === null ? null : r.nonAccrual ? "Yes" : "No") },
 ];
 
-// The lender table with the dossier columns. A null dossier cell reads "Not disclosed". A column whose disclosed values differ is marked with text.
+// The lender table: BDC, spread, FV % of par and principal are always visible and sortable (client
+// side only, over the rows E5 already returned). Each row expands to show the dossier fields E5
+// already includes (costPctPar, fvPctCost, floorBps, pikBps, maturityDate, nonAccrual). A null
+// dossier cell reads "Not disclosed", per CONTRACT.md's dossier null exception. A column whose
+// disclosed values differ across lenders is marked "differs".
 export function EvidenceTable({ rows }) {
-  const differs = COLS.map((c) => new Set(rows.map(c.cell).filter((v) => v !== null)).size > 1);
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState(1);
+  const [expanded, setExpanded] = useState(() => new Set());
+
+  const differs = DOSSIER_COLS.map((c) => new Set(rows.map(c.cell).filter((v) => v !== null)).size > 1);
+
+  const sorted = [...rows];
+  if (sortKey) {
+    const col = CORE_COLS.find((c) => c.key === sortKey);
+    sorted.sort((a, b) => (col.sort(a) - col.sort(b)) * sortDir);
+  }
+
+  const toggleSort = (key) => {
+    if (sortKey === key) setSortDir((d) => -d);
+    else {
+      setSortKey(key);
+      setSortDir(1);
+    }
+  };
+  const toggleRow = (id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead>
-          <tr>
-            <th className="p-1">BDC</th>
-            {COLS.map((c, i) => <th key={c.head} className="p-1">{c.head}{differs[i] && <span className="block text-xs font-normal">differs</span>}</th>)}
-            <th className="p-1">Principal</th><th className="p-1">Source</th>
+          <tr style={{ color: "var(--color-text-secondary)" }}>
+            <th className="w-8 py-2 pr-2" />
+            <th className="py-2 pr-4 font-medium">BDC</th>
+            {CORE_COLS.map((c) => (
+              <th key={c.key} className="py-2 pr-4 font-medium">
+                <button type="button" className="flex items-center gap-1 hover:underline focus-visible:underline" style={{ color: "inherit" }} onClick={() => toggleSort(c.key)} aria-label={`Sort by ${c.head}`}>
+                  {c.head}
+                  {sortKey === c.key && <span aria-hidden="true">{sortDir === 1 ? "↑" : "↓"}</span>}
+                </button>
+              </th>
+            ))}
+            <th className="py-2 pr-4 font-medium">Source</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.bdcName + r.sourceUrl} className="border-t">
-              <td className="p-1 font-medium">{r.bdcName}</td>
-              {COLS.map((c, i) => {
-                const v = c.cell(r);
-                return <td key={c.head} className={`p-1 ${differs[i] ? "font-semibold" : ""}`}>{v === null ? (c.dossier ? "Not disclosed" : NOT_YET) : v}</td>;
-              })}
-              <td className="p-1">{usd(r.principal)}</td>
-              <td className="p-1"><SourceLink url={r.sourceUrl} /></td>
-            </tr>
-          ))}
+          {sorted.map((r) => {
+            const id = r.bdcName + r.sourceUrl;
+            const isOpen = expanded.has(id);
+            return (
+              <Fragment key={id}>
+                <tr className="table-row-hover border-t transition-colors" style={{ borderColor: "var(--color-border)" }}>
+                  <td className="py-2 pr-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleRow(id)}
+                      aria-expanded={isOpen}
+                      aria-label={isOpen ? `Hide evidence dossier for ${r.bdcName}` : `Show evidence dossier for ${r.bdcName}`}
+                      className="flex h-6 w-6 items-center justify-center rounded-md transition-transform"
+                      style={{ color: "var(--color-text-secondary)", transform: isOpen ? "rotate(90deg)" : "none" }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M7 4 13 10 7 16" />
+                      </svg>
+                    </button>
+                  </td>
+                  <td className="py-2.5 pr-4 font-medium" style={{ color: "var(--color-text)" }}>{r.bdcName}</td>
+                  {CORE_COLS.map((c) => (
+                    <td key={c.key} className="py-2.5 pr-4" style={{ color: "var(--color-text)" }}>{c.cell(r)}</td>
+                  ))}
+                  <td className="py-2.5 pr-4"><SourceLink url={r.sourceUrl} /></td>
+                </tr>
+                {isOpen && (
+                  <tr className="border-t" style={{ borderColor: "var(--color-border)", background: "var(--color-brand-light)" }}>
+                    <td className="p-3" />
+                    <td colSpan={CORE_COLS.length + 2} className="p-3">
+                      <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                        {DOSSIER_COLS.map((c, i) => {
+                          const v = c.cell(r);
+                          return (
+                            <div key={c.head}>
+                              <dt className="text-xs font-medium uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
+                                {c.head}{differs[i] && <span className="ml-1 normal-case" style={{ color: "var(--color-flagged)" }}>differs</span>}
+                              </dt>
+                              <dd className="mt-0.5" style={{ color: "var(--color-text)" }}>{v === null ? NOT_DISCLOSED : v}</dd>
+                            </div>
+                          );
+                        })}
+                      </dl>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
