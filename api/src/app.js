@@ -15,6 +15,15 @@ export function createApp(opts) {
   const { pool } = opts;
   const app = express();
 
+  // Guard the entire API before route handlers or body parsers can do any work.
+  app.use("/api", (req, res, next) => {
+    if (opts.readOnly && req.method !== "GET" && req.method !== "HEAD") {
+      sendError(res, 403, "BAD_REQUEST", "This is a read-only demo; decisions are disabled");
+      return;
+    }
+    next();
+  });
+
   // E1 to E5 (facilities.js), E6 to E8 (review.js)
   registerFacilities(app, pool, opts.measuredPeriodEnd);
   registerReview(app, pool, opts.measuredPeriodEnd);

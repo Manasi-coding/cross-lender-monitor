@@ -10,12 +10,13 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(measuredPeriodEnd)) {
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const app = createApp({
   pool,
+  readOnly: process.env.READ_ONLY === "true",
   enableLabeling: process.env.ENABLE_LABELING === "true",
   nodeEnv: process.env.NODE_ENV ?? "production",
   measuredPeriodEnd,
 });
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
   console.log(`api listening on ${port}`);
 });

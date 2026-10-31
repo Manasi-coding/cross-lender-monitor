@@ -14,6 +14,8 @@ All SQL is parameterized. search params are case-insensitive substring matches w
 Borrower, facility and cluster IDs are regenerated on every compare.py run. They are stable across page loads, not across a rebuild.
 Every spread is total spread in basis points: cash spread plus PIK.
 Writes: E7 and E8 update candidate_pairs.status and updated_at only. E12 writes labeled_pairs only and is mounted only when ENABLE_LABELING=true (default false, no auth). Every other endpoint is read-only. [v2 clarification] E7 and E8 act only on pairs of the measured period; a pair from another period returns 404 NOT_FOUND and keeps its status. search on E2 and E4 returns 400 when repeated or longer than 200 characters.
+[Deployment addition] READ_ONLY defaults to false. With READ_ONLY=true, every request to /api or a path below /api except GET and HEAD returns HTTP 403 before parsing, routing or database access, including disabled or unknown routes. The standard body is { "error": { "code": "BAD_REQUEST", "message": "This is a read-only demo; decisions are disabled" } }. BAD_REQUEST is reused; existing error codes and endpoint fields are unchanged. ENABLE_LABELING remains false by default. With READ_ONLY off, existing behavior is unchanged.
+
 Shared types
 Ci    = { value, low, high, n }
 Range = { unsureAsNoMatch: Ci, unsureAsMatch: Ci }

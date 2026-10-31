@@ -95,6 +95,10 @@ export default function Label() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+        if (res.status === 403) {
+          setNote("This is a read-only demo; decisions are disabled");
+          return;
+        }
         if (res.status === 404) {
           const err = (await res.json().catch(() => null));
           // the route is not mounted ("No such route.") or the sample id is unknown ("No such sample.")

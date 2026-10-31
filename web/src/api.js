@@ -20,6 +20,7 @@ async function parse(res) {
   } catch {
     // not JSON: keep the generic message
   }
+  if (res.status === 403) message = "This is a read-only demo; decisions are disabled";
   throw new ApiFailure(res.status, code, message);
 }
 

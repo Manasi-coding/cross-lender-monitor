@@ -224,4 +224,24 @@ The web app is on http://localhost:8080 and the API on http://localhost:3000. Th
 
 Before deploying anywhere, set `POSTGRES_PASSWORD` (the default is for local use) and keep `ENABLE_LABELING` false. See `docs/project_closure.md` for the deployment readiness notes.
 
+## Deploying
+
+The public demo uses Render for the Docker API and Postgres, and Vercel for the web. Restore the existing database snapshot, including the frozen matcher and measured results. Do not rebuild the pipeline or rerun the matcher for deployment.
+
+1. Create a Render Postgres database using PostgreSQL 16. Create the API in the same region so it can use the database's internal connection URL. Keep connection URLs in environment settings, never in source files.
+2. Using PostgreSQL 16 client tools, dump the local database and restore into the fresh, empty Render database using its external connection URL. In PowerShell, set `DATABASE_URL` to your local connection and `RENDER_DATABASE_URL` to the external Render connection in your own shell, then run:
+
+   ```powershell
+   pg_dump --dbname="$env:DATABASE_URL" --format=custom --no-owner --no-acl --file=backups/deploy.dump
+   pg_restore --dbname="$env:RENDER_DATABASE_URL" --no-owner --no-acl --exit-on-error --single-transaction backups/deploy.dump
+   psql --dbname="$env:RENDER_DATABASE_URL" --command="SELECT count(*) AS labeled_pairs FROM labeled_pairs; SELECT matcher_config_hash FROM matcher_freeze;"
+   ```
+
+   The label count should remain 170 and the hash should match `docs/project_closure.md`. The full dump includes schema, migrations and data, so do not run migrations first. Keep dumps private and outside version control. Render's [backup and restore documentation](https://render.com/docs/postgresql-backups) describes restoring exported backups.
+3. Create a Render Web Service with Docker runtime, root directory `api`, Dockerfile `Dockerfile`, and Docker build context `.` relative to that root. Use the existing image command. Set `DATABASE_URL` to the Render database's internal URL, `MEASURED_PERIOD_END` to the existing measured quarter from your local `.env`, `NODE_ENV=production`, `READ_ONLY=true`, and `ENABLE_LABELING=false`. Render supplies `PORT`; the API binds to `0.0.0.0` on that port, defaulting to 3000 locally. Set the health check path to `/api/filings`. No pipeline service is needed for this snapshot demo.
+4. Replace the single `API_URL_HERE` placeholder in `web/vercel.json` with the API's public HTTPS origin, without a trailing slash. Create a Vercel project with root directory `web`, framework Vite, Node 24, install command `npm ci`, build command `npm run build`, and output directory `dist`. The first rewrite proxies `/api` requests; the second serves React Router routes on reload. The browser keeps relative API URLs, so the Vite development proxy and local Docker setup keep working. See [Vercel rewrites](https://vercel.com/docs/routing/rewrites).
+5. Verify `/api/filings` through Vercel and reload `/facilities` and `/decisions` directly. Confirm and Reject must return 403 with the read-only message and leave the case and session decision log unchanged. The API guard also rejects labeling writes, even if labeling is accidentally enabled. Local behavior stays writable unless `READ_ONLY=true` is set.
+
+On Render's free plan, the API sleeps after 15 minutes without inbound traffic. The first request after sleep can take about a minute to wake it; wait and retry if necessary. Free Postgres expires 30 days after creation. Upgrade before expiry to keep the demo available, and keep a private dump for recovery because the free database has no managed backups. Check the current [Render free plan limits](https://render.com/docs/free) before deployment.
+
 The matcher is frozen. Do not run `normalize`, `block` or `match` again, and do not run `config --unfreeze` unless you mean to discard the held out set.
