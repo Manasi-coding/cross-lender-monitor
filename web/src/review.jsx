@@ -268,8 +268,8 @@ function PairCard({ p, measured, busy, fading, index, total, onAct }) {
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>{typeName(p.instrumentType)}</span>
         <div className="flex gap-2">
-          <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "reject")}>Not the same</button>
-          <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onAct(p.holdingIdA, p.holdingIdB, "confirm")}>Same borrower</button>
+          <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={(e) => { e.currentTarget.blur(); onAct(p.holdingIdA, p.holdingIdB, "reject"); }}>Not the same</button>
+          <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={(e) => { e.currentTarget.blur(); onAct(p.holdingIdA, p.holdingIdB, "confirm"); }}>Same borrower</button>
         </div>
       </div>
     </Card>
@@ -397,8 +397,27 @@ function ClusterCard({ c, measured, busy, fading, index, total, onReject }) {
                       <td className="py-1.5 pr-2">
                         {pair && (
                           <div className="flex gap-2">
-                            <button type="button" disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onDismiss(pair.holdingIdA, pair.holdingIdB, h.rawName ?? "Name not disclosed")}>Same</button>
-                            <button disabled={busy} className="btn-secondary disabled:opacity-50" onClick={() => onReject(pair.holdingIdA, pair.holdingIdB)}>Not the same</button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="btn-secondary disabled:opacity-50"
+                              onClick={(e) => {
+                                e.currentTarget.blur();
+                                onDismiss(pair.holdingIdA, pair.holdingIdB, h.rawName ?? "Name not disclosed");
+                              }}
+                            >
+                              Same
+                            </button>
+                            <button
+                              disabled={busy}
+                              className="btn-secondary disabled:opacity-50"
+                              onClick={(e) => {
+                                e.currentTarget.blur();
+                                onReject(pair.holdingIdA, pair.holdingIdB);
+                              }}
+                            >
+                              Not the same
+                            </button>
                           </div>
                         )}
                       </td>
@@ -430,9 +449,6 @@ export function DecisionsPage() {
   return (
     <>
       <PageTitle>Decisions</PageTitle>
-      <p className="mb-5 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-        A record of review decisions made from this browser. It is stored locally, not on the server, so it will not show decisions made elsewhere, and clearing it does not undo anything. "Confirmed" and "Rejected" are real writes the server saved. "Left as is" is not: it just means you looked at a possible duplicate and chose not to split it, no server call was made because none was needed.
-      </p>
 
       <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
         <StatCard label="Decisions logged" value={entries.length} tone="neutral" />
