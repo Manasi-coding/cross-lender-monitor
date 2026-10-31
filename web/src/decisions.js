@@ -1,40 +1,23 @@
-// A local, browser-stored record of review decisions this interface has sent. CONTRACT.md's E7
-// and E8 only return { holdingIdA, holdingIdB, status } and write candidate_pairs.status; there is
-// no endpoint that lists past decisions, so this is not a server audit trail. It is a convenience
-// log of what this browser actually did, built only from successful API responses, never invented.
-const KEY = "review-decisions-v1";
+// A local, in-memory record of review decisions this interface has sent, for this page load only:
+// it starts empty on every refresh and is not written to disk (localStorage, sessionStorage or
+// otherwise), by request. CONTRACT.md's E7 and E8 only return { holdingIdA, holdingIdB, status }
+// and write candidate_pairs.status; there is no endpoint that lists past decisions, so this was
+// never a server audit trail. It is a convenience log of what this browser did since the last
+// reload, built only from successful API responses, never invented.
 const MAX_ENTRIES = 500;
-
-function read() {
-  try {
-    const raw = window.localStorage.getItem(KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
+let decisions = [];
 
 export function getDecisions() {
-  return read();
+  return decisions;
 }
 
 // entry: { holdingIdA, holdingIdB, status, title, context } where status is exactly what E7/E8
-// returned ("CONFIRMED" | "REJECTED") and context is "pair" (a possible-match case) or "cluster"
-// (a pair rejected from within a group-issue case).
+// returned ("CONFIRMED" | "REJECTED"), or "ACKNOWLEDGED" for a group-issue record left as is
+// (no server call made), and context is "pair" or "cluster".
 export function recordDecision(entry) {
-  const list = read();
-  list.unshift({ ...entry, at: new Date().toISOString() });
-  try {
-    window.localStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX_ENTRIES)));
-  } catch {
-    // storage can be blocked or full; the decision still happened server side, only the local log is lost
-  }
+  decisions = [{ ...entry, at: new Date().toISOString() }, ...decisions].slice(0, MAX_ENTRIES);
 }
 
 export function clearDecisions() {
-  try {
-    window.localStorage.removeItem(KEY);
-  } catch {
-    // ignore
-  }
+  decisions = [];
 }
