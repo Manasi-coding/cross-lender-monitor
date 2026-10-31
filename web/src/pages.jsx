@@ -81,9 +81,8 @@ export function OverviewPage() {
           to="/facilities"
           note={`Across ${o.bdcCount} ${o.bdcCount === 1 ? "lender" : "lenders"}`}
           tone="neutral"
-          icon="layers"
         />
-        <StatCard label="Need review" countTo={o.pendingReviewCount} format={(v) => Math.round(v)} to="/review" note="Need a closer look" tone="review" icon="search" />
+        <StatCard label="Need review" countTo={o.pendingReviewCount} format={(v) => Math.round(v)} to="/review" note="Need a closer look" tone="review" />
         <StatCard
           label="Flagged exposure"
           countTo={o.flaggedExposureUsd === null ? NaN : Number(o.flaggedExposureUsd)}
@@ -92,7 +91,6 @@ export function OverviewPage() {
           to="/facilities"
           note="Ranking key, not loss"
           tone="flagged"
-          icon="flag"
         />
         <StatCard
           label="Agreement"
@@ -102,7 +100,6 @@ export function OverviewPage() {
           to="/metrics"
           note="Valuations are close"
           tone="brand"
-          icon="check"
         />
       </div>
 
