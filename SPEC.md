@@ -350,7 +350,7 @@ CREATE INDEX idx_fs_flag     ON facility_summary (divergence_flag);
 -- migration 010 (Day 8, built): draw records. band_sizes.draw_seed, and the sizes of the out-of-time sample, which band_sizes cannot hold (its primary key is the band alone).
 ALTER TABLE band_sizes ADD COLUMN draw_seed INT;
 CREATE TABLE outoftime_band_sizes (score_band TEXT PRIMARY KEY, band_size INT NOT NULL, sample_size INT NOT NULL, period_end_date DATE NOT NULL, draw_seed INT NOT NULL, matcher_config_hash TEXT NOT NULL, drawn_at TIMESTAMPTZ DEFAULT now());   -- the prior quarter, never the measured period
--- migration 011 (F2, Day 9, not built): the dossier columns and the signal codes
+-- migration 011 (F2, built): the evidence dossier columns and the signal codes
 ALTER TABLE facility_comparisons
   ADD COLUMN cost           NUMERIC,
   ADD COLUMN cost_pct_par   NUMERIC,   -- NULL unless fair_value_pct_par is non-null
@@ -360,7 +360,7 @@ ALTER TABLE facility_comparisons
   ADD COLUMN maturity_date  DATE,
   ADD COLUMN non_accrual    BOOLEAN;
 ALTER TABLE facility_summary ADD COLUMN signal_codes TEXT[];   -- backfilled by the compare.py rebuild, then NOT NULL; no default stands in for signals that were not computed
--- migration 012 (F3 only, not built)
+-- migration 012 (F3, built): the history tables
 CREATE TABLE holding_history_links (holding_id INT PRIMARY KEY REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL UNIQUE REFERENCES normalized_holdings(holding_id), link_rule TEXT NOT NULL);   -- EXACT_KEY | EXACT_MATURITY
 CREATE TABLE facility_history (facility_id INT PRIMARY KEY REFERENCES canonical_facilities(facility_id), prior_period_end DATE NOT NULL, prior_lender_count INT NOT NULL CHECK (prior_lender_count >= 2), prior_divergence_pts NUMERIC NOT NULL, prior_divergence_flag TEXT NOT NULL, persistence TEXT NOT NULL);   -- WIDENED | NARROWED | CLOSED | STABLE
 CREATE TABLE history_link_checks (check_id SERIAL PRIMARY KEY, holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), prior_holding_id INT NOT NULL REFERENCES normalized_holdings(holding_id), label TEXT NOT NULL, labeled_by TEXT NOT NULL, checked_at TIMESTAMPTZ DEFAULT now());   -- hand check, MATCH | NO_MATCH | UNSURE

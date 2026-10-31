@@ -332,7 +332,7 @@ This closes the window between the Day 8 morning freeze and the afternoon draw: 
 6.9 Blocking recall (blocking_recall.py)
 --draw: seeded random sample of 30 measured-period holdings, printed with their raw rows.
 You search the other BDCs' schedules by eye. The pipeline must not suggest counterparts.
---record <holding_id> <counterpart_id>: stores a hand-found pair. Holdings with no counterpart get no row, so n can be below 30.
+--record <holding_id> <counterpart_id>: stores a hand-found pair. Holdings with no counterpart get no row, so n can be below 30. [Built Day 9: --record writes docs/blocking_recall_pending.json, not the database, and --finalize applies the predicate and then writes blocking_recall_checks, so an unfinalized pair can never reach a metric. See DECISIONS.md section 25.]
 --finalize: sets found_by_blocking by applying the section 6.2 predicate to each recorded pair.
 6.10 Report (report.py) and the run-time log
 block.py, match.py and compare.py each append one JSON line per run to docs/run_times.jsonl: module, seconds, period, config hash, git sha. This is automatic, not a flag.

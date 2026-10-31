@@ -38,3 +38,6 @@
 {"module": "match", "seconds": 0.111, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:46:26+00:00"}
 {"module": "block", "seconds": 0.283, "period": "2026-03-31", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:47:02+00:00"}
 {"module": "match", "seconds": 0.146, "period": "2026-03-31", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T12:47:02+00:00"}
+{"module": "compare", "seconds": 1.142, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T21:46:41+00:00"}
+{"module": "compare", "seconds": 1.019, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T21:46:43+00:00"}
+{"module": "compare", "seconds": 1.139, "period": "2026-06-30", "config_hash": null, "git_sha": null, "recorded_at": "2026-10-30T21:46:45+00:00"}
