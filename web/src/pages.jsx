@@ -413,11 +413,6 @@ export function FilingsPage() {
           const shown = rows.filter((r) => (!lender || r.bdcName === lender) && (!quarter || r.periodEnd === quarter) && (!formType || r.formType === formType));
           const sel = selected ?? shown[0] ?? null;
 
-          // Coverage matrix: a cell is present only if that exact lender/quarter pair exists in the
-          // real E10 list. There is no "issue" state in the data, only present or absent, so a
-          // missing cell reads as not yet filed (amber), never a fabricated red "problem".
-          const quartersAsc = quarters.slice().reverse();
-          const hasFiling = (name, q) => rows.some((r) => r.bdcName === name && r.periodEnd === q);
           const latest = rows.slice().sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : a.periodEnd > b.periodEnd ? -1 : a.bdcName.localeCompare(b.bdcName))).slice(0, 5);
 
           return (
@@ -475,51 +470,6 @@ export function FilingsPage() {
                     </table>
                   </div>
                 )}
-              </Card>
-
-              <Card compact>
-                <CardLabel>Filings coverage</CardLabel>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr style={{ color: "var(--color-text-secondary)" }}>
-                        <th className="py-1.5 pr-4 font-medium">Lender</th>
-                        {quartersAsc.map((q) => (
-                          <th key={q} className="px-3 py-1.5 text-center font-medium">{quarterLabel(q)}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lenders.map((name) => (
-                        <tr key={name} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                          <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{name}</td>
-                          {quartersAsc.map((q) => (
-                            <td key={q} className="px-3 py-2 text-center">
-                              {hasFiling(name, q) ? (
-                                <span style={{ color: "var(--color-chart-green)" }} aria-label="Filed and processed" title="Filed and processed">&#10003;</span>
-                              ) : (
-                                <span style={{ color: "var(--color-review)" }} aria-label="Not yet filed" title="Not yet filed">&#9675;</span>
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                        <td className="py-2 pr-4 text-xs font-semibold" style={{ color: "var(--color-text-muted)" }}>Complete</td>
-                        {quartersAsc.map((q) => {
-                          const n = lenders.filter((name) => hasFiling(name, q)).length;
-                          return (
-                            <td key={q} className="px-3 py-2 text-center text-xs" style={{ color: n === lenders.length ? "var(--color-chart-green)" : "var(--color-review)" }}>
-                              {n} / {lenders.length}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
               </Card>
 
               <Card compact>

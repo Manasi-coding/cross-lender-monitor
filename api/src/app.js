@@ -24,14 +24,11 @@ export function createApp(opts) {
     next();
   });
 
-  // E1 to E5 (facilities.js), E6 to E8 (review.js)
   registerFacilities(app, pool, opts.measuredPeriodEnd);
   registerReview(app, pool, opts.measuredPeriodEnd);
 
-  // E9 (metrics.js)
   registerMetrics(app, pool, opts.measuredPeriodEnd);
 
-  // E10 GET /api/filings (CONTRACT.md). Sort: periodEnd descending, bdcName ascending.
   app.get("/api/filings", async (_req, res) => {
     const { rows } = await pool.query(
       `SELECT f.bdc_name AS "bdcName",
@@ -53,12 +50,10 @@ export function createApp(opts) {
     registerLabeling(app, pool);
   }
 
-  // Unknown id or route not mounted: 404 in the standard shape.
   app.use((_req, res) => {
     sendError(res, 404, "NOT_FOUND", "No such route.");
   });
 
-  // Error middleware: ApiError keeps its status and code, anything else is a 500.
   app.use((err, _req, res, _next) => {
     if (err instanceof ApiError) {
       sendError(res, err.status, err.code, err.message);

@@ -274,7 +274,7 @@ Done when: every card renders both its value and its null state, and the sensiti
 └─────────────────────────────────────────────────────────────┘
 
 The filter box filters the loaded list in the browser (E10 has no search parameter).
-(v3) The built page adds, both computed client-side from E10's own rows (no new field, no new endpoint): a "Filings coverage" lender-by-quarter matrix (checkmark present, circle not yet filed, with a complete count per quarter) and a "Latest filings" list (top 5 by period end) linking back to the table. Clicking a table row selects it and shows a detail card (filed date, type, status, holdings count, the SEC filing link). The status column in the table itself is always "Processed": E10 has no issue state in the data, only present or absent.
+(v3) The built page adds a "Latest filings" list (top 5 by period end), computed client-side from E10's rows, linking back to the table. The Filings coverage card has been removed. Clicking a table row selects it and shows a detail card (filed date, type, status, holdings count, the SEC filing link). The status column in the table itself is always "Processed": E10 has no issue state in the data, only present or absent.
 4.9 Labeling /label (dev only, not in nav) (E11, E12)
 ┌─────────────────────────────────────────────────────────────┐
 │ Label pair                               Progress n / total │
@@ -355,7 +355,8 @@ E12
 
 7. Shared components
 Card, StatCard, Banner (label plus point spread), SourceLink, PeriodTag ("Outside measured quarter"), RangeStat (renders a Range with intervals, or "Not yet measured"), DotPlot (inline SVG), BandTable, PairCard, ClusterCard, EmptyState, ErrorState (with retry), Skeleton. (v2) ExposureTag, SignalChip, EvidenceTable, HistoryStrip (inline SVG, same approach as DotPlot) and PersistenceTag. No chart library.
-(v3) `DotPlot`, `Banner`, `ExposureTag`, `SignalChip`, `EvidenceTable`, `HistoryStrip` and `PersistenceTag` are all still defined in `web/src/components.jsx` but are no longer used by any page; the redesign replaced them with `DivergenceDonut`, `ClickableDivergenceBar`, `BarList`/`DivergenceSplitChart`, `RankedShareList`, `LenderValueBars` and `RangeBar` (all inline SVG or CSS, still no chart library), plus `StatusPill`/`StatusDot` for the flag colors and `Toast` for the "Decision saved" confirmation. `recordDecision`/`getDecisions`/`clearDecisions` (`web/src/decisions.js`) back the new Decisions page.
+(v3) The redesign uses `DivergenceDonut`, `ClickableDivergenceBar`, `BarList`/`DivergenceSplitChart`, `RankedShareList`, `LenderValueBars` and `RangeBar` (inline SVG or CSS), plus `StatusPill`/`StatusDot` and `Toast`. Unused v2 display components have been removed. `recordDecision`/`getDecisions`/`clearDecisions` (`web/src/decisions.js`) back the Decisions page.
+
 8. Build order by day (matches SPEC section 18)
 Day
 Frontend work
@@ -380,7 +381,7 @@ Triage view (the Facilities page), Evidence panel, new Metrics cards, Overview, 
 E1, E4, E10
 
 If the schedule slips, cut in this order: landing page, Filings, Overview, Borrower Detail polish. Triage (the Facilities page), Review Queue, Comparison and Metrics never get cut.
-9. Frontend rules for Claude Code
+9. Frontend working rules
 You know React, so review every diff and be able to walk through the data flow for the comparison page and the metrics page without notes.
 Build against the real API from Day 7. Do not build from invented sample numbers, and never screenshot made-up data.
 types.ts mirrors CONTRACT.md exactly. If the contract changes, change it there first.

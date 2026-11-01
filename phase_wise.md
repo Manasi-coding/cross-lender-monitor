@@ -230,7 +230,7 @@ Phase 5: Labeling tools and tuning labels (Day 6)
 Morning:
 sample_labels.py --phase tuning: section 6.6.
 E11 and E12 behind ENABLE_LABELING. E11 never returns score, status, band, phase or draw order.
-Claude Code builds the label page (frontend.md section 4.9).
+Build the label page (frontend.md section 4.9).
 Afternoon: 4. You label about 40 tuning pairs. They are diagnostic only: they find normalization bugs and no label moves a threshold. A MATCH needs at least one independent signal (industry, footnote, cross-filing name, credit agreement exhibit) on top of name, maturity and spread. Otherwise UNSURE. Principal size is not evidence. 5. The tuning draw stays random, with no --min-score bias. Only the held-out set has to be unbiased. 6. Start provisional compare.py.
 Tests: 15, 24.
 Gate: about 40 tuning labels in labeled_pairs with MATCH, NO_MATCH and UNSURE counts noted in your DECISIONS.md draft.
@@ -428,7 +428,7 @@ Tests
 contract tests for all of E1 to E12
 
 Files: tests/test_normalize.py, test_match.py, test_idempotency.py, test_schema_drift.py, test_compare.py, test_evaluate.py, test_guards.py, and the API contract tests in api/tests/. One extra unit test in test_match.py, not a numbered SPEC test, checks the all_pairs formula on a fixture with 3, 2 and 4 holdings in three BDCs in one period (32 + 34 + 2*4 = 26).
-9. Working rules (put in CLAUDE.md)
+9. Working rules (see AGENTS.md)
 Read every diff. You must be able to explain every file in an interview.
 You label the data. Never let any model pre-label or suggest labels.
 Write the DECISIONS.md lines yourself: the two-phase design, frozen bands and per-band sample sizes, the freeze mechanism and what the matcher hash covers (config sections plus matcher source files), the crossFilingNames limitation (it uses the matcher's own normalizer, so it is independent of scores and bands but not of normalization), why 0.80 is both the fuzzy floor and the REVIEW lower edge, the digit guard, the name-only scorer, exact-name borrower grouping, why no review-confirmed figure is reported, which tag decisions were made on Day 1.

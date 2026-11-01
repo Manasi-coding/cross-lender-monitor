@@ -832,7 +832,7 @@ Labeling endpoints (E11, E12 behind ENABLE_LABELING), sample_labels.py --phase t
 Phase 1: label about 40 tuning pairs (diagnostic only; no label moves a threshold). Then start provisional compare.py (AUTO pairs only: clustering rules, facility materialization, borrower grouping, divergence)
 You label — never delegate. A MATCH needs an independent signal, not attributes alone
 7
-Finish provisional compare.py and its tests (18 to 21); build E1 to E8 and E10 from CONTRACT.md; Claude Code starts the core four screens against the real endpoints
+Finish provisional compare.py and its tests (18 to 21); build E1 to E8 and E10 from CONTRACT.md; start the core four screens against the real endpoints
 Real facilities visible in the browser, even if provisional
 8 (AM)
 Thresholds stay at the defaults; apply any normalization fixes the tuning pairs exposed, then freeze the matcher (normalization, blocking, scoring, band edges) and store the matcher hash with python -m pipeline.config --freeze. Just before freezing, run block.py and match.py 3 times so their timings are logged under the frozen config (§12.9)

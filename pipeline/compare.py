@@ -1,26 +1,11 @@
-"""compare.py: full deterministic rebuild of the curated tables (SPEC section 5, phase_wise.md 6.5).
+"""Rebuild curated comparisons for the measured quarter in one transaction.
+
+AUTO and CONFIRMED edges form clusters; REJECTED pairs prevent merges.
+Same-BDC collisions go to review. Only clusters with two usable marks become facilities.
+Stable ordering preserves IDs across rebuilds. Labels and candidate pairs are read-only.
 
 Run: python -m pipeline.compare
-Only the measured period (MEASURED_PERIOD_END) is built. One transaction: the API sees the old state or the new one.
-Reads candidate_pairs, normalized_holdings, raw_holdings and raw_filings. Writes only the curated tables
-(canonical_borrowers, canonical_facilities, holding_facility_map, facility_comparisons, facility_summary,
-review_clusters, review_cluster_members). It never writes candidate_pairs, label_samples, labeled_pairs or
-matcher_freeze, and no label feeds the clustering.
-
-Steps:
-1. Edges are AUTO and CONFIRMED pairs between different BDCs. REJECTED pairs are cannot-link constraints.
-   Edges go in the order CONFIRMED first, then descending score, then ascending holding ids. An edge whose union
-   would put a cannot-link pair into one component is skipped and logged. REVIEW and NO_MATCH never form edges.
-2. A component of 2 or more holdings is a cluster. A cluster with two MARKED holdings (non-null fair_value_pct_par)
-   from one BDC goes to review_clusters, with all its holdings as members. Holdings with an excluded_reason have no
-   mark: they do not count for this test, and they stay in the cluster, in facility_comparisons with their reason,
-   and in excluded_count.
-3. A cluster becomes a facility only if at least 2 holdings have a non-null fair_value_pct_par.
-4. A cluster is named by its most frequent borrower_normalized (ties: ascending codepoint order). Facilities are
-   grouped into borrowers by exact equality of that name within the period.
-5. Divergence is max minus min fair_value_pct_par over included holdings (Decimal), flagged from the config cutoffs.
-   exposure_usd = divergence / 100 * the smallest principal among included holdings (v2 F1, a ranking key).
-Rows are inserted in a fixed order and the sequences restart, so two runs give identical ids and rows.
+See SPEC section 5 for clustering rules.
 """
 from __future__ import annotations
 
@@ -44,7 +29,6 @@ SEQUENCES = [("canonical_borrowers", "canonical_borrower_id"), ("canonical_facil
              ("review_clusters", "cluster_id")]
 
 
-# ------------------------------------------------------------------ pure functions
 def flag_for(divergence: Decimal, mild: Decimal, flagged: Decimal) -> str:
     """Under mild: AGREEMENT. From mild up to but not including flagged: MILD. flagged and above: FLAGGED."""
     if divergence < mild:
@@ -112,10 +96,74 @@ def most_frequent(values):
     return min(v for v, c in counts.items() if c == top)
 
 
-# ------------------------------------------------------------------ the rebuild
+def describe_clusters(clusters, rows, bdc, log):
+    collisions, failed, facilities = [], [], []
+    for members in clusters:
+        marked = [m for m in members if rows[m][9] is not None]       # the collision test counts marked holdings only
+        if len({bdc[m] for m in marked}) < len(marked):
+            collisions.append(members)
+            log.append(f"review cluster (same BDC collision): holdings {members}")
+            continue
+        if len(marked) < 2:
+            failed.append(members)
+            log.append(f"not a facility, {len(marked)} usable mark(s): holdings {members}")
+            continue
+        facilities.append(members)
+
+    def describe(members):
+        name = most_frequent([rows[m][3] for m in members])
+        types = {rows[m][4] for m in members}
+        if len(types) > 1:
+            log.append(f"warning: cluster {members} mixes instrument types {sorted(types)}")
+        maturities = [rows[m][6] for m in members if rows[m][6] is not None]
+        return {"members": members, "name": name, "type": most_frequent([rows[m][4] for m in members]),
+                "rate": most_frequent([rows[m][5] for m in members]), "maturity": min(maturities) if maturities else None}
+
+    described = [describe(m) for m in facilities]
+    described.sort(key=lambda d: (d["name"], d["type"], d["maturity"] is None, d["maturity"] or date.min, d["members"][0]))
+    return collisions, failed, described
+
+
+def save_facility(conn, d, borrower_id, period, rows, cfg, fciks, built, prior_mark):
+    mild, flagged = cutoffs(cfg)
+    d["facility_id"] = conn.execute(
+        "INSERT INTO canonical_facilities (canonical_borrower_id, period_end_date, instrument_type_norm, reference_rate, maturity_bucket) "
+        "VALUES (%s, %s, %s, %s, %s) RETURNING facility_id",
+        (borrower_id[d["name"]], period, d["type"], d["rate"], d["maturity"])).fetchone()[0]
+    for m in d["members"]:
+        r = rows[m]
+        conn.execute("INSERT INTO holding_facility_map (holding_id, facility_id) VALUES (%s, %s)", (m, d["facility_id"]))
+        conn.execute(
+            "INSERT INTO facility_comparisons (facility_id, holding_id, period_end_date, bdc_cik, bdc_name, spread_bps_total, "
+            "principal, fair_value_pct_par, excluded_reason, source_url, cost, cost_pct_par, fv_pct_cost, floor_bps, pik_bps, "
+            "maturity_date, non_accrual) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (d["facility_id"], m, period, r[1], r[2], r[7], r[8], r[9], r[10], r[11], r[12],
+             cost_pct_par(r[12], r[8], r[9]), fv_pct_cost(r[13], r[12]), r[14], r[15], r[6], r[16]))
+    marks = [rows[m][9] for m in d["members"] if rows[m][9] is not None]
+    div = max(marks) - min(marks)
+    # exposure_usd (v2 F1): the gap in points applied to the smallest compared position. A ranking key, not a loss estimate.
+    smallest = min(rows[m][8] for m in d["members"] if rows[m][9] is not None)
+    d.update(lender_count=len(marks), excluded_count=len(d["members"]) - len(marks), divergence=div,
+             flag=flag_for(div, mild, flagged), exposure=exposure_usd(div, smallest))
+    # F2 signals over the included holdings only (a mark exists), from evidence.py; a null field is not disclosed and is skipped
+    included = [{"non_accrual": rows[m][16], "pik_bps": rows[m][15], "floor_bps": rows[m][14], "bdc_cik": rows[m][1], "spread_bps": rows[m][7],
+                 "maturity_date": rows[m][6], "cost_pct_par": cost_pct_par(rows[m][12], rows[m][8], rows[m][9]), "reference_rate": rows[m][5]}
+                for m in d["members"] if rows[m][9] is not None]
+    d["signals"] = signals(included, cfg, fciks)
+    conn.execute("INSERT INTO facility_summary (facility_id, lender_count, excluded_count, divergence_pts, divergence_flag, exposure_usd, signal_codes) "
+                 "VALUES (%s, %s, %s, %s, %s, %s, %s)", (d["facility_id"], d["lender_count"], d["excluded_count"], div, d["flag"], d["exposure"], d["signals"]))
+    if built:                                   # F3 step 9: NO_PRIOR (fewer than 2 prior marks) has no row, derived by absence
+        prior = [prior_mark[m] for m in d["members"] if rows[m][9] is not None and prior_mark.get(m) is not None]
+        if len(prior) >= 2:
+            pdiv = max(prior) - min(prior)
+            pflag = flag_for(pdiv, mild, flagged)
+            conn.execute("INSERT INTO facility_history (facility_id, prior_period_end, prior_lender_count, prior_divergence_pts, "
+                         "prior_divergence_flag, persistence) VALUES (%s, %s, %s, %s, %s, %s)",
+                         (d["facility_id"], built[0], len(prior), pdiv, pflag, persistence(d["flag"], div, pflag, pdiv, mild)))
+
+
 def run(conn, period: date, cfg: dict | None = None) -> dict:
     cfg = cfg or load_config()
-    mild, flagged = cutoffs(cfg)
     fciks = floor_ciks(cfg)
     log: list[str] = []
 
@@ -144,31 +192,7 @@ def run(conn, period: date, cfg: dict | None = None) -> dict:
     for s in skipped:
         log.append(f"skipped edge {s['a']}-{s['b']} ({s['status']}, score {s['score']}): {s['reason']}")
 
-    collisions, failed, facilities = [], [], []
-    for members in clusters:
-        marked = [m for m in members if rows[m][9] is not None]       # the collision test counts marked holdings only
-        if len({bdc[m] for m in marked}) < len(marked):
-            collisions.append(members)
-            log.append(f"review cluster (same BDC collision): holdings {members}")
-            continue
-        usable = [m for m in members if rows[m][9] is not None]
-        if len(usable) < 2:
-            failed.append(members)
-            log.append(f"not a facility, {len(usable)} usable mark(s): holdings {members}")
-            continue
-        facilities.append(members)
-
-    def describe(members):
-        name = most_frequent([rows[m][3] for m in members])
-        types = {rows[m][4] for m in members}
-        if len(types) > 1:
-            log.append(f"warning: cluster {members} mixes instrument types {sorted(types)}")
-        maturities = [rows[m][6] for m in members if rows[m][6] is not None]
-        return {"members": members, "name": name, "type": most_frequent([rows[m][4] for m in members]),
-                "rate": most_frequent([rows[m][5] for m in members]), "maturity": min(maturities) if maturities else None}
-
-    described = [describe(m) for m in facilities]
-    described.sort(key=lambda d: (d["name"], d["type"], d["maturity"] is None, d["maturity"] or date.min, d["members"][0]))
+    collisions, failed, described = describe_clusters(clusters, rows, bdc, log)
     names = sorted({d["name"] for d in described})
 
     with conn.transaction():
@@ -181,42 +205,8 @@ def run(conn, period: date, cfg: dict | None = None) -> dict:
             borrower_id[n] = conn.execute(
                 "INSERT INTO canonical_borrowers (canonical_name, period_end_date) VALUES (%s, %s) RETURNING canonical_borrower_id",
                 (n, period)).fetchone()[0]
-        summary_rows = []
         for d in described:
-            d["facility_id"] = conn.execute(
-                "INSERT INTO canonical_facilities (canonical_borrower_id, period_end_date, instrument_type_norm, reference_rate, maturity_bucket) "
-                "VALUES (%s, %s, %s, %s, %s) RETURNING facility_id",
-                (borrower_id[d["name"]], period, d["type"], d["rate"], d["maturity"])).fetchone()[0]
-            for m in d["members"]:
-                r = rows[m]
-                conn.execute("INSERT INTO holding_facility_map (holding_id, facility_id) VALUES (%s, %s)", (m, d["facility_id"]))
-                conn.execute(
-                    "INSERT INTO facility_comparisons (facility_id, holding_id, period_end_date, bdc_cik, bdc_name, spread_bps_total, "
-                    "principal, fair_value_pct_par, excluded_reason, source_url, cost, cost_pct_par, fv_pct_cost, floor_bps, pik_bps, "
-                    "maturity_date, non_accrual) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (d["facility_id"], m, period, r[1], r[2], r[7], r[8], r[9], r[10], r[11], r[12],
-                     cost_pct_par(r[12], r[8], r[9]), fv_pct_cost(r[13], r[12]), r[14], r[15], r[6], r[16]))
-            marks = [rows[m][9] for m in d["members"] if rows[m][9] is not None]
-            div = max(marks) - min(marks)
-            # exposure_usd (v2 F1): the gap in points applied to the smallest compared position. A ranking key, not a loss estimate.
-            smallest = min(rows[m][8] for m in d["members"] if rows[m][9] is not None)
-            d.update(lender_count=len(marks), excluded_count=len(d["members"]) - len(marks), divergence=div,
-                     flag=flag_for(div, mild, flagged), exposure=exposure_usd(div, smallest))
-            # F2 signals over the included holdings only (a mark exists), from evidence.py; a null field is not disclosed and is skipped
-            included = [{"non_accrual": rows[m][16], "pik_bps": rows[m][15], "floor_bps": rows[m][14], "bdc_cik": rows[m][1], "spread_bps": rows[m][7],
-                         "maturity_date": rows[m][6], "cost_pct_par": cost_pct_par(rows[m][12], rows[m][8], rows[m][9]), "reference_rate": rows[m][5]}
-                        for m in d["members"] if rows[m][9] is not None]
-            d["signals"] = signals(included, cfg, fciks)
-            conn.execute("INSERT INTO facility_summary (facility_id, lender_count, excluded_count, divergence_pts, divergence_flag, exposure_usd, signal_codes) "
-                         "VALUES (%s, %s, %s, %s, %s, %s, %s)", (d["facility_id"], d["lender_count"], d["excluded_count"], div, d["flag"], d["exposure"], d["signals"]))
-            if built:                                   # F3 step 9: NO_PRIOR (fewer than 2 prior marks) has no row, derived by absence
-                prior = [prior_mark[m] for m in d["members"] if rows[m][9] is not None and prior_mark.get(m) is not None]
-                if len(prior) >= 2:
-                    pdiv = max(prior) - min(prior)
-                    pflag = flag_for(pdiv, mild, flagged)
-                    conn.execute("INSERT INTO facility_history (facility_id, prior_period_end, prior_lender_count, prior_divergence_pts, "
-                                 "prior_divergence_flag, persistence) VALUES (%s, %s, %s, %s, %s, %s)",
-                                 (d["facility_id"], built[0], len(prior), pdiv, pflag, persistence(d["flag"], div, pflag, pdiv, mild)))
+            save_facility(conn, d, borrower_id, period, rows, cfg, fciks, built, prior_mark)
         for members in collisions:
             cid = conn.execute("INSERT INTO review_clusters (period_end_date, reason) VALUES (%s, 'SAME_BDC_COLLISION') RETURNING cluster_id",
                                (period,)).fetchone()[0]

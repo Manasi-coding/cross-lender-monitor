@@ -25,6 +25,18 @@ export function MetricsPage() {
 
 const headline = (range) => range?.unsureExcluded ?? null;
 
+function averageFieldCoverage(rows) {
+  if (!rows) return null;
+  const sums = new Map();
+  for (const r of rows) {
+    const cur = sums.get(r.field) ?? { weighted: 0, n: 0 };
+    cur.weighted += (r.parsedShare ?? 0) * r.n;
+    cur.n += r.n;
+    sums.set(r.field, cur);
+  }
+  return [...sums.entries()].map(([field, { weighted, n }]) => ({ field, share: n > 0 ? weighted / n : 0 }));
+}
+
 function Dashboard({ m }) {
   const [detail, setDetail] = useState(false);
   const precisionAuto = headline(m.precisionAutoOnly);
@@ -34,25 +46,12 @@ function Dashboard({ m }) {
   const blocking = m.blockingRecall;
   const blockingFound = blocking ? Math.round(blocking.value * blocking.n) : null;
 
-  // Only the two sample counts CONTRACT.md's E9 actually returns (heldOutCount, outOfTime.labeledCount).
-  // The tuning sample (about 40 pairs) has no API field at all: it is diagnostic only per SPEC.md and
-  // intentionally outside the evaluation endpoint, so it is left out here rather than invented.
+  // Tuning labels are diagnostic and excluded from evaluation counts.
   const heldOutN = m.heldOutCount;
   const latestN = m.outOfTime?.labeledCount ?? null;
   const labelledTotal = (heldOutN ?? 0) + (latestN ?? 0);
 
-  // A weighted average of fieldCoverage's per-BDC parsedShare, one row per field, real numbers only.
-  const fieldAverages = (() => {
-    if (!m.fieldCoverage) return null;
-    const sums = new Map();
-    for (const r of m.fieldCoverage) {
-      const cur = sums.get(r.field) ?? { weighted: 0, n: 0 };
-      cur.weighted += (r.parsedShare ?? 0) * r.n;
-      cur.n += r.n;
-      sums.set(r.field, cur);
-    }
-    return [...sums.entries()].map(([field, { weighted, n }]) => ({ field, share: n > 0 ? weighted / n : 0 }));
-  })();
+  const fieldAverages = averageFieldCoverage(m.fieldCoverage);
 
   return (
     <div className="space-y-5">

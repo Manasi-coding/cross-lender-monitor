@@ -1,4 +1,5 @@
 import express from "express";
+import { sendError } from "./errors.js";
 
 // E11 and E12 (CONTRACT.md). Mounted by createApp only when ENABLE_LABELING=true.
 // E11 reads only label_samples, labeled_pairs, normalized_holdings and raw_holdings, and never selects a score,
@@ -7,12 +8,8 @@ import express from "express";
 
 const LABELS = ["MATCH", "NO_MATCH", "UNSURE"];
 
-function sendError(res, status, code, message) {
-  res.status(status).json({ error: { code, message } });
-}
-
 async function holding(pool, id, pairIds) {
-  const { rows } = await pool.query (
+  const { rows } = await pool.query(
     `SELECT r.portfolio_company_raw AS "rawName",
             n.instrument_type_norm AS "instrumentType",
             to_char(n.maturity_date, 'YYYY-MM-DD') AS "maturityDate",
@@ -28,7 +25,7 @@ async function holding(pool, id, pairIds) {
   const h = rows[0];
   // Other holdings, in any ingested filing of the same period as the pair, with exactly this normalized borrower name.
   // Exact equality, no scoring. Rows of another quarter never appear as evidence.
-  const names = await pool.query (
+  const names = await pool.query(
     `SELECT DISTINCT r.portfolio_company_raw AS name
        FROM normalized_holdings n
        JOIN raw_holdings r ON r.holding_id = n.holding_id
@@ -51,69 +48,70 @@ async function holding(pool, id, pairIds) {
   };
 }
 
-export function registerLabeling(app, pool) {
-  // E11 GET /api/label/next
-  app.get("/api/label/next", async (_req, res) => {
-    const next = await pool.query (
-      `SELECT s.sample_id, s.phase, s.holding_id_a, s.holding_id_b
-         FROM label_samples s
-        WHERE NOT EXISTS (SELECT 1 FROM labeled_pairs l WHERE l.sample_id = s.sample_id)
-        ORDER BY CASE s.phase WHEN 'TUNING' THEN 0 WHEN 'HELDOUT' THEN 1 WHEN 'OUTOFTIME' THEN 2 ELSE 3 END, s.draw_order, s.sample_id
-        LIMIT 1`,
-    );
-    if (next.rows.length === 0) {
-      res.status(204).end();
-      return;
-    }
-    const s = next.rows[0];
-    // progress counts the phase being served; the phase itself is not sent
-    const progress = await pool.query (
-      `SELECT COUNT(l.sample_id)::int AS labeled, COUNT(*)::int AS total
-         FROM label_samples s
-         LEFT JOIN labeled_pairs l ON l.sample_id = s.sample_id
-        WHERE s.phase = $1`,
-      [s.phase],
-    );
-    const ids = [s.holding_id_a, s.holding_id_b];
-    res.json({
-      sampleId: s.sample_id,
-      progress: progress.rows[0],
-      holdingA: await holding(pool, s.holding_id_a, ids),
-      holdingB: await holding(pool, s.holding_id_b, ids),
-    });
+async function getNextSample(pool, _req, res) {
+  const next = await pool.query(
+    `SELECT s.sample_id, s.phase, s.holding_id_a, s.holding_id_b
+       FROM label_samples s
+      WHERE NOT EXISTS (SELECT 1 FROM labeled_pairs l WHERE l.sample_id = s.sample_id)
+      ORDER BY CASE s.phase WHEN 'TUNING' THEN 0 WHEN 'HELDOUT' THEN 1 WHEN 'OUTOFTIME' THEN 2 ELSE 3 END, s.draw_order, s.sample_id
+      LIMIT 1`,
+  );
+  if (next.rows.length === 0) {
+    res.status(204).end();
+    return;
+  }
+  const s = next.rows[0];
+  // progress counts the phase being served; the phase itself is not sent
+  const progress = await pool.query(
+    `SELECT COUNT(l.sample_id)::int AS labeled, COUNT(*)::int AS total
+       FROM label_samples s
+       LEFT JOIN labeled_pairs l ON l.sample_id = s.sample_id
+      WHERE s.phase = $1`,
+    [s.phase],
+  );
+  const ids = [s.holding_id_a, s.holding_id_b];
+  res.json({
+    sampleId: s.sample_id,
+    progress: progress.rows[0],
+    holdingA: await holding(pool, s.holding_id_a, ids),
+    holdingB: await holding(pool, s.holding_id_b, ids),
   });
+}
 
-  // E12 POST /api/label. The server derives everything except sampleId, label and labeledBy.
-  app.post("/api/label", express.json(), async (req, res) => {
-    const body = (req.body ?? {});
-    const { sampleId, label, labeledBy } = body;
-    if (typeof label !== "string" || !LABELS.includes(label)) {
-      sendError(res, 400, "BAD_REQUEST", "label must be MATCH, NO_MATCH or UNSURE.");
-      return;
-    }
-    if (typeof sampleId !== "number" || !Number.isInteger(sampleId) || sampleId < 1 || sampleId > 2147483647) {
-      sendError(res, 400, "BAD_REQUEST", "sampleId must be a positive integer.");
-      return;
-    }
-    if (typeof labeledBy !== "string" || labeledBy.trim() === "") {
-      sendError(res, 400, "BAD_REQUEST", "labeledBy is required.");
-      return;
-    }
-    const { rows } = await pool.query (
-      `INSERT INTO labeled_pairs (sample_id, holding_id_a, holding_id_b, label, labeled_by, sampling_method, score_band)
-       SELECT s.sample_id, s.holding_id_a, s.holding_id_b, $2, $3,
-              CASE s.phase WHEN 'TUNING' THEN 'BLOCKED' WHEN 'HELDOUT' THEN 'STRATIFIED' WHEN 'OUTOFTIME' THEN 'STRATIFIED' END, s.score_band
-         FROM label_samples s
-        WHERE s.sample_id = $1
-       ON CONFLICT (sample_id) DO UPDATE
-          SET label = EXCLUDED.label, labeled_by = EXCLUDED.labeled_by, labeled_at = now()
-       RETURNING sample_id AS "sampleId", label, labeled_at AS "labeledAt"`,
-      [sampleId, label, labeledBy.trim()],
-    );
-    if (rows.length === 0) {
-      sendError(res, 404, "NOT_FOUND", "No such sample.");
-      return;
-    }
-    res.json({ sampleId: rows[0].sampleId, label: rows[0].label, labeledAt: rows[0].labeledAt.toISOString() });
-  });
+async function saveLabel(pool, req, res) {
+  const body = (req.body ?? {});
+  const { sampleId, label, labeledBy } = body;
+  if (typeof label !== "string" || !LABELS.includes(label)) {
+    sendError(res, 400, "BAD_REQUEST", "label must be MATCH, NO_MATCH or UNSURE.");
+    return;
+  }
+  if (typeof sampleId !== "number" || !Number.isInteger(sampleId) || sampleId < 1 || sampleId > 2147483647) {
+    sendError(res, 400, "BAD_REQUEST", "sampleId must be a positive integer.");
+    return;
+  }
+  if (typeof labeledBy !== "string" || labeledBy.trim() === "") {
+    sendError(res, 400, "BAD_REQUEST", "labeledBy is required.");
+    return;
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO labeled_pairs (sample_id, holding_id_a, holding_id_b, label, labeled_by, sampling_method, score_band)
+     SELECT s.sample_id, s.holding_id_a, s.holding_id_b, $2, $3,
+            CASE s.phase WHEN 'TUNING' THEN 'BLOCKED' WHEN 'HELDOUT' THEN 'STRATIFIED' WHEN 'OUTOFTIME' THEN 'STRATIFIED' END, s.score_band
+       FROM label_samples s
+      WHERE s.sample_id = $1
+     ON CONFLICT (sample_id) DO UPDATE
+        SET label = EXCLUDED.label, labeled_by = EXCLUDED.labeled_by, labeled_at = now()
+     RETURNING sample_id AS "sampleId", label, labeled_at AS "labeledAt"`,
+    [sampleId, label, labeledBy.trim()],
+  );
+  if (rows.length === 0) {
+    sendError(res, 404, "NOT_FOUND", "No such sample.");
+    return;
+  }
+  res.json({ sampleId: rows[0].sampleId, label: rows[0].label, labeledAt: rows[0].labeledAt.toISOString() });
+}
+
+export function registerLabeling(app, pool) {
+  app.get("/api/label/next", (req, res) => getNextSample(pool, req, res));
+  app.post("/api/label", express.json(), (req, res) => saveLabel(pool, req, res));
 }

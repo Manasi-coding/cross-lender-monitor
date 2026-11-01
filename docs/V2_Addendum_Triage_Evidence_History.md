@@ -5,7 +5,7 @@ Status: draft for your review. Nothing here is merged into `SPEC.md`, `CONTRACT.
 
 Reading note: you wrote "text set". I read it as **test set** (section 7). If you meant a text corpus, tell me, because the project uses no text corpus and no LLM.
 
-Estimates in this file are my own planning numbers, not measurements. Claude Code speed and filing quirks will move them.
+Estimates in this file are my own planning numbers, not measurements. Implementation time and filing quirks will move them.
 
 ---
 
