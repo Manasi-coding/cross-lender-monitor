@@ -274,7 +274,7 @@ Done when: every card renders both its value and its null state, and the sensiti
 └─────────────────────────────────────────────────────────────┘
 
 The filter box filters the loaded list in the browser (E10 has no search parameter).
-(v3) The built page adds a "Latest filings" list (top 5 by period end), computed client-side from E10's rows, linking back to the table. The Filings coverage card has been removed. Clicking a table row selects it and shows a detail card (filed date, type, status, holdings count, the SEC filing link). The status column in the table itself is always "Processed": E10 has no issue state in the data, only present or absent.
+(v3) The Filings and Latest filings tables are combined into one table showing lender, quarter, period end, filing type and status, ordered by period end descending and lender name ascending from E10. Lender, quarter and filing type filters apply to this table. Filing types link directly to SEC filings. The Filings coverage and Selected filing cards have been removed. Status is always "Processed": E10 has no issue state in the data, only present or absent.
 4.9 Labeling /label (dev only, not in nav) (E11, E12)
 ┌─────────────────────────────────────────────────────────────┐
 │ Label pair                               Progress n / total │

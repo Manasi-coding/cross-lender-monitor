@@ -399,7 +399,6 @@ export function FilingsPage() {
   const [lender, setLender] = useState("");
   const [quarter, setQuarter] = useState("");
   const [formType, setFormType] = useState("");
-  const [selected, setSelected] = useState(null);
   const { overview } = useShared();
 
   return (
@@ -411,9 +410,6 @@ export function FilingsPage() {
           const quarters = [...new Set(rows.map((r) => r.periodEnd))].sort().reverse();
           const types = [...new Set(rows.map((r) => r.formType))].sort();
           const shown = rows.filter((r) => (!lender || r.bdcName === lender) && (!quarter || r.periodEnd === quarter) && (!formType || r.formType === formType));
-          const sel = selected ?? shown[0] ?? null;
-
-          const latest = rows.slice().sort((a, b) => (a.periodEnd < b.periodEnd ? 1 : a.periodEnd > b.periodEnd ? -1 : a.bdcName.localeCompare(b.bdcName))).slice(0, 5);
 
           return (
             <div className="space-y-5">
@@ -437,7 +433,7 @@ export function FilingsPage() {
                 </select>
               </div>
 
-              <Card compact id="filings-table">
+              <Card compact>
                 <CardLabel>Filings</CardLabel>
                 {shown.length === 0 ? (
                   <EmptyState>No filings match this filter.</EmptyState>
@@ -448,6 +444,7 @@ export function FilingsPage() {
                         <tr style={{ color: "var(--color-text-secondary)" }}>
                           <th className="py-1.5 pr-4 font-medium">Lender</th>
                           <th className="py-1.5 pr-4 font-medium">Quarter</th>
+                          <th className="py-1.5 pr-4 font-medium">Period end</th>
                           <th className="py-1.5 pr-4 font-medium">Filing</th>
                           <th className="py-1.5 pr-2 font-medium">Status</th>
                         </tr>
@@ -456,13 +453,13 @@ export function FilingsPage() {
                         {shown.map((r) => (
                           <tr
                             key={r.sourceUrl}
-                            onClick={() => setSelected(r)}
-                            className="table-row-hover cursor-pointer border-t transition-colors"
-                            style={{ borderColor: "var(--color-border)", background: sel === r ? "var(--color-brand-faint)" : undefined }}
+                            className="table-row-hover border-t transition-colors"
+                            style={{ borderColor: "var(--color-border)" }}
                           >
                             <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.bdcName}<PeriodTag periodEnd={r.periodEnd} measured={overview?.measuredPeriodEnd} /></td>
                             <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{quarterLabel(r.periodEnd)}</td>
-                            <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{r.formType}</td>
+                            <td className="whitespace-nowrap py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{r.periodEnd}</td>
+                            <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}><SourceLink url={r.sourceUrl}>{r.formType}</SourceLink></td>
                             <td className="py-2 pr-2"><StatusDot flag="AGREEMENT" label="Processed" /> <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Processed</span></td>
                           </tr>
                         ))}
@@ -472,51 +469,6 @@ export function FilingsPage() {
                 )}
               </Card>
 
-              <Card compact>
-                <CardLabel>Latest filings</CardLabel>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead>
-                      <tr style={{ color: "var(--color-text-secondary)" }}>
-                        <th className="py-1.5 pr-4 font-medium">Date</th>
-                        <th className="py-1.5 pr-4 font-medium">Lender</th>
-                        <th className="py-1.5 pr-4 font-medium">Type</th>
-                        <th className="py-1.5 pr-2 font-medium">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {latest.map((r) => (
-                        <tr key={r.sourceUrl} className="border-t" style={{ borderColor: "var(--color-border)" }}>
-                          <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.periodEnd}</td>
-                          <td className="py-2 pr-4" style={{ color: "var(--color-text)" }}>{r.bdcName}</td>
-                          <td className="py-2 pr-4" style={{ color: "var(--color-text-secondary)" }}>{r.formType}</td>
-                          <td className="py-2 pr-2"><StatusDot flag="AGREEMENT" label="Processed" /> <span className="text-xs" style={{ color: "var(--color-text-secondary)" }}>Processed</span></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="mt-3 text-right">
-                  <a href="#filings-table" className="text-sm font-medium hover:underline" style={{ color: "var(--color-brand-dark)" }}>View all filings &rarr;</a>
-                </div>
-              </Card>
-
-              {sel && (
-                <Card compact>
-                  <CardLabel>Selected filing</CardLabel>
-                  <div className="flex flex-wrap items-baseline justify-between gap-2">
-                    <p className="font-semibold" style={{ color: "var(--color-text)" }}>{sel.bdcName}</p>
-                    <p className="text-sm" style={{ color: "var(--color-text-secondary)" }}>{quarterLabel(sel.periodEnd)}</p>
-                  </div>
-                  <p className="mt-1 text-sm" style={{ color: "var(--color-text-secondary)" }}>
-                    Filed: {sel.periodEnd} &nbsp;&middot;&nbsp; Type: {sel.formType} &nbsp;&middot;&nbsp; Status: <StatusDot flag="AGREEMENT" label="Processed" /> Processed
-                  </p>
-                  <p className="mt-3 text-sm" style={{ color: "var(--color-text)" }}>
-                    <span className="font-semibold">{sel.holdingsCount}</span> <span style={{ color: "var(--color-text-secondary)" }}>holdings reported</span>
-                  </p>
-                  <p className="mt-3"><SourceLink url={sel.sourceUrl}>View SEC filing</SourceLink></p>
-                </Card>
-              )}
             </div>
           );
         }}
